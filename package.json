@@ -1,0 +1,25 @@
+{
+  "name": "rate-limiting",
+  "description": "Test implementation of various rate-limiting strategies",
+  "type": "module",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "node --test --import tsx **/*.test.ts"
+  },
+  "dependencies": {
+    "@hono/node-server": "^1.14.1",
+    "@valkey/valkey-glide": "^1.3.4",
+    "hono": "^4.7.9",
+    "zod": "^4.0.0-beta.20250505T195954"
+  },
+  "devDependencies": {
+    "@testcontainers/valkey": "^10.26.0",
+    "@types/node": "^20.11.17",
+    "tsx": "^4.7.1",
+    "typescript": "^5.8.3",
+    "vitest": "^3.1.4"
+  },
+  "license": "MIT"
+}
