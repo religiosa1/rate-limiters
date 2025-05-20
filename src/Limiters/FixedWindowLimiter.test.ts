@@ -4,7 +4,7 @@ import { GlideClient } from "@valkey/valkey-glide";
 import { FixedWindowLimiter } from "./FixedWindowLimiter";
 import { Time } from "./consts";
 
-describe("TokenBucketLimiter", () => {
+describe("FixedWindowLimiter", () => {
 	let container: StartedValkeyContainer;
 	let client: GlideClient;
 
