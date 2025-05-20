@@ -13,16 +13,26 @@ const tokenBucketLimiterOptsSchema = z.object({
 
 type TokenBucketLimiterOpts = z.infer<typeof tokenBucketLimiterOptsSchema>;
 
+/** Token bucket limiter.
+ *
+ * For each client creates two keys in valkey:
+ *   - tokenbucket:nTokens:${clientId} __float__ value of tokens left for the client
+ *   - tokenbucket:updatedAt:${clientId} time of last nTokens update
+ *
+ * Each of the values have expiration datetime, which set to maximum time required
+ * for a bucket to fully refill (it doesn't account for the current bucket value).
+ * Refill is calculated and stored during the applyLimit call.
+ */
 export class TokenBucketLimiter implements IRateLimiter {
 	static readonly defaultOpts: TokenBucketLimiterOpts = {
-		limit: 6,
-		refillInterval: 3_000,
+		limit: 5,
+		refillInterval: 10_000,
 		refillRate: 1,
 	};
 
 	public readonly opts: TokenBucketLimiterOpts;
 
-	/** Time for a bucket to totally refill in ms, real */
+	/** Time for a bucket to totally refill in ms, float */
 	public get timeForCompleteRefillMs(): number {
 		return (this.opts.limit / this.opts.refillRate) * this.opts.refillInterval;
 	}
@@ -55,7 +65,7 @@ export class TokenBucketLimiter implements IRateLimiter {
 		return false;
 	}
 
-	/** Get the current token amount with calculated refill as real. */
+	/** Get the current token amount with calculated refill as float. */
 	async getTokenAmount(clientId: string): Promise<number> {
 		const tsStr = await this.valkey.get(this.getTsKey(clientId));
 		if (!tsStr) {
@@ -68,7 +78,7 @@ export class TokenBucketLimiter implements IRateLimiter {
 		return this.getRefillAmountInMs(elapsedMs);
 	}
 
-	/** Returns amount of tokens that will be refilled in the duration of N ms, real */
+	/** Returns amount of tokens that will be refilled in the duration of N ms, float */
 	public getRefillAmountInMs(n: number): number {
 		return (n / this.opts.refillInterval) * this.opts.refillRate;
 	}
@@ -78,7 +88,7 @@ export class TokenBucketLimiter implements IRateLimiter {
 	}
 
 	private getTsKey(clientId: string): string {
-		return `tokenbucket:last-call-ts:${clientId}`;
+		return `tokenbucket:updatedAt:${clientId}`;
 	}
 
 	private async updateBucket(clientId: string, nTokens: number): Promise<void> {

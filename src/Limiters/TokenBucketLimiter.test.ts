@@ -1,9 +1,9 @@
 import { describe, it, beforeAll, afterAll, expect, vi } from "vitest";
 import { StartedValkeyContainer, ValkeyContainer } from "@testcontainers/valkey";
 import { GlideClient } from "@valkey/valkey-glide";
-import { TokenBucketLimiter } from "./TokenBucket";
+import { TokenBucketLimiter } from "./TokenBucketLimiter";
 
-describe("TokenBucket", () => {
+describe("TokenBucketLimiter", () => {
 	let container: StartedValkeyContainer;
 	let client: GlideClient;
 
