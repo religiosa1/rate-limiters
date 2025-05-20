@@ -20,17 +20,50 @@ describe("TokenBucketLimiter", () => {
 	});
 
 	it("limits rate to predefined value", async () => {
-		const name = crypto.randomUUID();
+		const clientId = crypto.randomUUID();
 		const tbl = new TokenBucketLimiter(client, { limit: 3 });
 		for (let i = 0; i < tbl.opts.limit; i++) {
-			const isLimited = await tbl.applyLimit(name);
+			const isLimited = await tbl.applyLimit(clientId);
 			expect(isLimited).toBe(false);
 		}
-		const isLimited = await tbl.applyLimit(name);
+		const isLimited = await tbl.applyLimit(clientId);
 		expect(isLimited).toBe(true);
 	});
 
-	// TODO test refill
+	it("refils in the expected time", async () => {
+		vi.useFakeTimers();
+		try {
+			const clientId = crypto.randomUUID();
+			const tbl = new TokenBucketLimiter(client, {
+				refillInterval: 1000,
+				refillRate: 1,
+				limit: 3,
+			});
+			for (let i = 0; i < tbl.opts.limit; i++) {
+				await tbl.applyLimit(clientId);
+			}
+			// After depletion must be 0
+			const n1 = await tbl.getTokenAmount(clientId);
+			expect(n1).toBeCloseTo(0.0);
+
+			// Half of refill rate -- half of token is there.
+			vi.advanceTimersByTime(tbl.opts.refillInterval / 2);
+			const n2 = await tbl.getTokenAmount(clientId);
+			expect(n2).toBeCloseTo(0.5);
+
+			// The rest of the time for full refill, must be up to the limit
+			vi.advanceTimersByTime(tbl.opts.refillInterval * 2.5);
+			const n3 = await tbl.getTokenAmount(clientId);
+			expect(n3).toBeCloseTo(3);
+
+			// TSome additional time passed, it won't go above maximum
+			vi.advanceTimersByTime(tbl.opts.refillInterval * 2.5);
+			const n4 = await tbl.getTokenAmount(clientId);
+			expect(n4).toBeCloseTo(3);
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 
 	it("allows to get the refill amount in ms tokens", async () => {
 		const tbl = new TokenBucketLimiter(client, {

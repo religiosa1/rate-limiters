@@ -1,6 +1,6 @@
+import z from "zod";
 import { TimeUnit, Transaction, type GlideClient } from "@valkey/valkey-glide";
 import type { IRateLimiter } from "./IRateLimiter";
-import z from "zod";
 
 const tokenBucketLimiterOptsSchema = z.object({
 	/** Maximum amount of request for a client in the bucket  */
@@ -44,9 +44,8 @@ export class TokenBucketLimiter implements IRateLimiter {
 		this.opts = { ...TokenBucketLimiter.defaultOpts, ...opts };
 	}
 
-	/**
-	 * Applies limiting to a client's request
-	 * @param clientId client unique id, which is determined if request is limited
+	/** Applies limiting to a client's id.
+	 * @param clientId client unique id
 	 * @returns true if request should be limited, false otherwise
 	 */
 	async applyLimit(clientId: string): Promise<boolean> {
@@ -80,7 +79,7 @@ export class TokenBucketLimiter implements IRateLimiter {
 
 	/** Returns amount of tokens that will be refilled in the duration of N ms, float */
 	public getRefillAmountInMs(n: number): number {
-		return (n / this.opts.refillInterval) * this.opts.refillRate;
+		return Math.min(this.opts.limit, (n / this.opts.refillInterval) * this.opts.refillRate);
 	}
 
 	private getNTokensKey(clientId: string): string {

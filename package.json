@@ -6,7 +6,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
     "start": "node dist/index.js",
-    "test": "node --test --import tsx **/*.test.ts"
+    "test": "npx vitest"
   },
   "dependencies": {
     "@hono/node-server": "^1.14.1",
