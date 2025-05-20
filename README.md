@@ -12,6 +12,14 @@ GET localhost:8000
 X-Client-Id: some-client-id
 ```
 
+As it's a test implementation, more of an execrise than a real prod ready
+solution, I tried not to overcomplicate things. Technically, as every
+`applyLimit` performs multiple calls to valkey, there's a race condition
+possibility, where some requests can come in between calls to valkey, and thus
+are falsly treated as not limited. But the chance is rather small (we're talking
+about miliseconds of opportunity window), and the alternative is to run the
+whole method as a lua script in the valkey itself, I consider this acceptable.
+
 ## Running the project
 
 Each middleware uses [valkey] instance for storing request hits.

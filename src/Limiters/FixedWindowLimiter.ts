@@ -21,11 +21,9 @@ type FixedWindowLimiterOpts = z.infer<typeof fixedWindowLimiterOptsSchema>;
  */
 export class FixedWindowLimiter implements IRateLimiter {
 	static readonly defaultOpts: FixedWindowLimiterOpts = {
-		duration: 1,
-		limit: 60_000,
-		get startDate() {
-			return new Date();
-		},
+		duration: 60_000,
+		limit: 1,
+		startDate: new Date(0),
 	};
 
 	public readonly opts: FixedWindowLimiterOpts;
