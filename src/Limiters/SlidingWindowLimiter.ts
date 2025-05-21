@@ -13,7 +13,7 @@ const slidingWindowLimiterOptsSchema = z.object({
 });
 type SlidingWindowLimiterOpts = z.infer<typeof slidingWindowLimiterOptsSchema>;
 
-/** Sliding window limiter
+/** Sliding window limiter -- transaction version.
  *
  * Stores multiple requests in ZSET in valkey and refills one request at the
  * time.
@@ -89,7 +89,7 @@ export class SlidingWindowLimiterNoLua implements IRateLimiter {
 	}
 }
 
-/** Sliding window limiter
+/** Sliding window limiter -- lua on valkey version.
  *
  * Stores multiple requests in ZSET in valkey and refills one request at the
  * time.

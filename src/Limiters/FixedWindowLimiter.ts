@@ -17,18 +17,16 @@ const fixedWindowLimiterOptsSchema = z.object({
 });
 type FixedWindowLimiterOpts = z.infer<typeof fixedWindowLimiterOptsSchema>;
 
-/** Fixed window limiter -- in memory version.
+/** Fixed window limiter -- transaction version.
  *
  * Stores the amount of requests per window in a single key, which contains
  * window start timestamp and expires, when the window expires. applyLimit
  * calls increase the value of this counter, and if it's greater than or equal
  * to the limit option, the request will be considered limited.
  *
- * This version of class calculates limit in js runtime, performing multiple
- * requests to valkey in applyLimit method andd thus is susceptible to race
- * conditions during simultaneous requests from the same client which results in
- * false negatives. Use the version of the class without NoLua suffix to address
- * the issue.
+ * This version of class performs all of the operations in a single valkey
+ * transaction an thus should be robust enough against race conditions, but
+ * still lua version might be preferrable for performance reasons.
  */
 export class FixedWindowLimiterNoLua implements IRateLimiter {
 	static readonly defaultOpts: FixedWindowLimiterOpts = {
@@ -52,12 +50,17 @@ export class FixedWindowLimiterNoLua implements IRateLimiter {
 	 * @returns true if request should be limited, false otherwise
 	 */
 	async applyLimit(clientId: string): Promise<boolean> {
-		const nRequests = await this.getCurrentRequestAmount(clientId);
-		if (nRequests && nRequests >= this.opts.limit) {
+		const key = this.getClientKey(clientId);
+		const expireAt = this.getCurrentWindowStopTs();
+		const tx = new Transaction()
+			.incr(key) //
+			.pexpireAt(key, expireAt);
+		const [count] = (await this.valkey.exec(tx)) ?? [];
+
+		if (typeof count === "number" && count > this.opts.limit) {
 			return true;
 		}
 
-		await this.trackRequest(clientId);
 		return false;
 	}
 
@@ -81,15 +84,6 @@ export class FixedWindowLimiterNoLua implements IRateLimiter {
 		const start = this.opts.startDate.getTime();
 		const duration = this.opts.duration;
 		return Math.floor((Date.now() - start) / duration) * duration + start;
-	}
-
-	private async trackRequest(clientId: string): Promise<void> {
-		const key = this.getClientKey(clientId);
-		const expireAt = this.getCurrentWindowStopTs();
-		const tx = new Transaction()
-			.incr(key) //
-			.pexpireAt(key, expireAt);
-		await this.valkey.exec(tx);
 	}
 }
 

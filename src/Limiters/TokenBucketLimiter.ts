@@ -16,7 +16,7 @@ const tokenBucketLimiterOptsSchema = z.object({
 
 type TokenBucketLimiterOpts = z.infer<typeof tokenBucketLimiterOptsSchema>;
 
-/** Token bucket limiter.
+/** Token bucket limiter -- js runtime version.
  *
  * For each client creates two keys in valkey:
  *   - tokenbucket:nTokens:${clientId} __float__ value of tokens left for the client
@@ -122,7 +122,7 @@ export class TokenBucketLimiterNoLua implements IRateLimiter {
 	}
 }
 
-/** Token bucket limiter.
+/** Token bucket limite -- lua on valkey version.
  *
  * For each client creates two keys in valkey:
  *   - tokenbucket:nTokens:${clientId} __float__ value of tokens left for the client

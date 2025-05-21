@@ -28,12 +28,13 @@ separate calls to valkey instance, and one executing applyOperation as a Lua
 script on the valkey instance.
 
 - The former always have `NoLua` suffix in its name is susceptible to
-  race conditions during simultaneous requests from the same client which
+  race conditions during simultaneous requests from the same client which may
   results in false negatives. It's a secondary, supportive version here mostly
   as a pure exercise, if you want to keep logic rather simpler than robust or
   if you can't execute Lua on your valkey instance for whatever reason.
 - The later not having not having `NoLua` suffix is more robust version, as it's
-  safe against race conditions. This is the main impelemntation.
+  safe against race conditions and can be run in the cluster mode. This is the
+  main implementation.
 
 ## Running the project
 
