@@ -32,7 +32,7 @@ describe.each([
 		const clientId = crypto.randomUUID();
 		const fwl = new Limiter(client, {
 			limit: 5,
-			duration: 3 * Time.Minute,
+			windowSizeMs: 3 * Time.Minute,
 		});
 
 		// First requests are not limited
@@ -48,7 +48,7 @@ describe.each([
 		const clientId = crypto.randomUUID();
 		const fwl = new Limiter(client, {
 			limit: 5,
-			duration: 3 * Time.Minute,
+			windowSizeMs: 3 * Time.Minute,
 		});
 
 		// Exhausting the limit
@@ -56,7 +56,7 @@ describe.each([
 			await fwl.applyLimit(clientId);
 		}
 		// After duration amount of time has passed, we're not limited again
-		vi.advanceTimersByTime(fwl.opts.duration * Time.Minute);
+		vi.advanceTimersByTime(fwl.opts.windowSizeMs * Time.Minute);
 		for (let i = 0; i < fwl.opts.limit; i++) {
 			const result = await fwl.applyLimit(clientId);
 			expect(result).toBe(false);
@@ -69,7 +69,7 @@ describe.each([
 		const clientId = crypto.randomUUID();
 		const fwl = new Limiter(client, {
 			limit: 5,
-			duration: 3 * Time.Minute,
+			windowSizeMs: 3 * Time.Minute,
 		});
 
 		// Exhausting half of the limit
@@ -77,7 +77,7 @@ describe.each([
 			await fwl.applyLimit(clientId);
 		}
 		// Waiting for the next quant -- next minutes
-		vi.advanceTimersByTime(fwl.opts.duration * Time.Minute);
+		vi.advanceTimersByTime(fwl.opts.windowSizeMs * Time.Minute);
 		for (let i = 0; i < fwl.opts.limit; i++) {
 			const result = await fwl.applyLimit(clientId);
 			expect(result).toBe(false);

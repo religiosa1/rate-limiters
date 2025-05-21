@@ -29,7 +29,7 @@ describe.each([
 
 	it("limits the amount of request in a window to the predefined amount", async () => {
 		const clientId = crypto.randomUUID();
-		const swl = new Limiter(client, { limit: 3, duration: 10_000 });
+		const swl = new Limiter(client, { limit: 3, windowSizeMs: 10_000 });
 		const timeStep = 50;
 
 		for (let i = 0; i < swl.opts.limit; i++) {
@@ -38,7 +38,7 @@ describe.each([
 			vi.advanceTimersByTime(50);
 		}
 		// after duration - spentTime ms first request must be available
-		vi.advanceTimersByTime(swl.opts.duration - timeStep * swl.opts.limit);
+		vi.advanceTimersByTime(swl.opts.windowSizeMs - timeStep * swl.opts.limit);
 		const r1 = await swl.applyLimit(clientId);
 		expect(r1).toBe(false);
 		// but only 1 request shoul be available

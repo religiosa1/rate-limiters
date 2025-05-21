@@ -7,7 +7,7 @@ const tokenBucketLimiterOptsSchema = z.object({
 	/** Maximum amount of request for a client in the bucket  */
 	limit: z.number().int().positive(),
 	/** Refill interval of token bucket in milliseconds */
-	refillInterval: z.number().positive().int(),
+	refillIntervalMs: z.number().positive().int(),
 	/** Amount of tokens to be refilled on interval */
 	refillRate: z.number().positive(),
 	/** Valkey keys prefix */
@@ -35,7 +35,7 @@ type TokenBucketLimiterOpts = z.infer<typeof tokenBucketLimiterOptsSchema>;
 export class TokenBucketLimiterNoLua implements IRateLimiter {
 	static readonly defaultOpts: TokenBucketLimiterOpts = {
 		limit: 5,
-		refillInterval: 10_000,
+		refillIntervalMs: 10_000,
 		refillRate: 1,
 		keyPrefix: "token_bucket_limiter",
 	};
@@ -44,7 +44,7 @@ export class TokenBucketLimiterNoLua implements IRateLimiter {
 
 	/** Time for a bucket to totally refill in ms, float */
 	public get timeForCompleteRefillMs(): number {
-		return (this.opts.limit / this.opts.refillRate) * this.opts.refillInterval;
+		return (this.opts.limit / this.opts.refillRate) * this.opts.refillIntervalMs;
 	}
 
 	constructor(protected readonly valkey: GlideClient, opts?: Partial<TokenBucketLimiterOpts>) {
@@ -93,7 +93,7 @@ export class TokenBucketLimiterNoLua implements IRateLimiter {
 
 	/** Returns amount of tokens that will be refilled in the duration of N ms, float */
 	public getRefillAmountInMs(n: number): number {
-		const refillAmount = (n / this.opts.refillInterval) * this.opts.refillRate;
+		const refillAmount = (n / this.opts.refillIntervalMs) * this.opts.refillRate;
 		return refillAmount;
 	}
 
@@ -183,7 +183,7 @@ export class TokenBucketLimiter extends TokenBucketLimiterNoLua {
 
 		const count = await this.valkey.invokeScript(TokenBucketLimiter.luaScript, {
 			keys: [this.getNTokensKey(clientId), this.getTsKey(clientId)],
-			args: [this.opts.limit, expireMs, Date.now(), this.opts.refillInterval, this.opts.refillRate].map(String),
+			args: [this.opts.limit, expireMs, Date.now(), this.opts.refillIntervalMs, this.opts.refillRate].map(String),
 		});
 
 		// Valkey EVAL returns 0 for false, 1 for true from Lua script

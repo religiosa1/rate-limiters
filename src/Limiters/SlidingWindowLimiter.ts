@@ -5,7 +5,7 @@ import type { IRateLimiter } from "./IRateLimiter";
 
 const slidingWindowLimiterOptsSchema = z.object({
 	/** Sliding Window size in ms */
-	duration: z.number().int().positive(),
+	windowSizeMs: z.number().int().positive(),
 	/** Maximum amount of requests in the window */
 	limit: z.number().int().positive(),
 	/** Valkey keys prefix */
@@ -24,7 +24,7 @@ type SlidingWindowLimiterOpts = z.infer<typeof slidingWindowLimiterOptsSchema>;
  */
 export class SlidingWindowLimiterNoLua implements IRateLimiter {
 	static readonly defaultOpts: SlidingWindowLimiterOpts = {
-		duration: 60_000,
+		windowSizeMs: 60_000,
 		limit: 20,
 		keyPrefix: "sliding_window_limiter",
 	};
@@ -44,7 +44,7 @@ export class SlidingWindowLimiterNoLua implements IRateLimiter {
 	 */
 	async applyLimit(clientId: string): Promise<boolean> {
 		const nowTs = Date.now();
-		const windowStartTs = nowTs - this.opts.duration;
+		const windowStartTs = nowTs - this.opts.windowSizeMs;
 		const key = this.getClientKey(clientId);
 		await this.removeOutatedRequests(clientId, nowTs);
 		const tx = new Transaction()
@@ -55,7 +55,7 @@ export class SlidingWindowLimiterNoLua implements IRateLimiter {
 					score: nowTs,
 				},
 			])
-			.pexpireAt(key, nowTs + this.opts.duration)
+			.pexpireAt(key, nowTs + this.opts.windowSizeMs)
 			.zcount(key, { value: windowStartTs }, { value: nowTs });
 		const [, , , count] = (await this.valkey.exec(tx)) ?? [];
 		if (typeof count === "number" && count > this.opts.limit) {
@@ -73,7 +73,7 @@ export class SlidingWindowLimiterNoLua implements IRateLimiter {
 
 	private async getAvailableRequestsAmountToTime(clientId: string, nowTs: number): Promise<number> {
 		const key = this.getClientKey(clientId);
-		const windowStartTs = nowTs - this.opts.duration;
+		const windowStartTs = nowTs - this.opts.windowSizeMs;
 		const count = await this.valkey.zcount(key, { value: windowStartTs }, { value: nowTs });
 		return Math.max(this.opts.limit - count, 0);
 	}
@@ -84,7 +84,7 @@ export class SlidingWindowLimiterNoLua implements IRateLimiter {
 
 	private async removeOutatedRequests(clientId: string, nowTs: number): Promise<void> {
 		const key = this.getClientKey(clientId);
-		const windowStartTs = nowTs - this.opts.duration;
+		const windowStartTs = nowTs - this.opts.windowSizeMs;
 		await this.valkey.zremRangeByScore(key, InfBoundary.NegativeInfinity, { value: windowStartTs, isInclusive: true });
 	}
 }
@@ -130,7 +130,7 @@ export class SlidingWindowLimiter extends SlidingWindowLimiterNoLua {
 		const key = this.getClientKey(clientId);
 		const requestId = crypto.randomUUID();
 		const nowTs = Date.now();
-		const windowSize = this.opts.duration;
+		const windowSize = this.opts.windowSizeMs;
 		const limit = this.opts.limit;
 
 		const result = await this.valkey.invokeScript(SlidingWindowLimiter.luaScript, {

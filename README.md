@@ -13,33 +13,41 @@ Available limiter types:
 - Floating Window aka Approximated Sliding Window TODO
 - [Token Bucket](./src/Limiters/TokenBucketLimiter.ts)
 
-The app itself, is a web-service, which provides endpoints with different
-rate-limiting strategies.
-
-```http
-GET localhost:8000
-X-Client-Id: some-client-id
-```
-
 Each limiter is written as a class, implementing
 [IRateLimiter](./src//Limiters//IRateLimiter.ts) interface. Each limiter
-is supplied in two versions -- one performing applyOperation in JS with multiple
-separate calls to valkey instance, and one executing applyOperation as a Lua
-script on the valkey instance.
+is supplied in two versions -- one performing applyOperation in JS with either
+multiple calls to valkey instance (either completely separate or in a single
+transaction), and one executing applyOperation as a Lua script on the valkey
+instance.
 
 - The former always have `NoLua` suffix in its name is susceptible to
   race conditions during simultaneous requests from the same client which may
   results in false negatives. It's a secondary, supportive version here mostly
   as a pure exercise, if you want to keep logic rather simpler than robust or
-  if you can't execute Lua on your valkey instance for whatever reason.
+  if you can't execute Lua on your valkey instance for whatever reason. This
+  version also can't be run on valeky in the cluster mode.
 - The later not having not having `NoLua` suffix is more robust version, as it's
   safe against race conditions and can be run in the cluster mode. This is the
   main implementation.
 
+The app itself, is a web-service, which provides endpoints with different
+rate-limiting strategies.
+
+```http
+GET localhost:8000/:limiterName
+X-Client-Id: some-client-id
+```
+
+Where `:limiterName` name matches available limiter type in kebab-case:
+
+- `fixed-window`
+- `sliding-window`
+- `token-bucket`
+
 ## Running the project
 
 Each middleware uses [valkey] instance for storing request hits.
-So you need a valkey instance to start the project. You can install it on
+So you need a valkey available to start the project. You can install it on
 your machine, use some remote instance, or launch one in the docker:
 
 ```sh
@@ -60,5 +68,5 @@ Then try hitting the endpoint a couple of times with a http client of your
 liking, using curl as an example:
 
 ```
-curl http://localhost:8000/ -H 'x-client-id: 1'
+curl http://localhost:8000/fixed-window -H 'x-client-id: 1'
 ```

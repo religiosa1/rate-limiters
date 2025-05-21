@@ -7,7 +7,7 @@ import type { IRateLimiter } from "./IRateLimiter";
 
 const fixedWindowLimiterOptsSchema = z.object({
 	/** Fixed Window size in ms */
-	duration: z.number().int().positive(),
+	windowSizeMs: z.number().int().positive(),
 	/** First window start, e.g. start of the day */
 	startDate: z.date(),
 	/** Maximum amount of requests in the window */
@@ -30,7 +30,7 @@ type FixedWindowLimiterOpts = z.infer<typeof fixedWindowLimiterOptsSchema>;
  */
 export class FixedWindowLimiterNoLua implements IRateLimiter {
 	static readonly defaultOpts: FixedWindowLimiterOpts = {
-		duration: 60_000,
+		windowSizeMs: 60_000,
 		limit: 1,
 		startDate: new Date(0),
 		keyPrefix: "fixed_window_limiter",
@@ -77,12 +77,12 @@ export class FixedWindowLimiterNoLua implements IRateLimiter {
 	}
 
 	protected getCurrentWindowStopTs(): number {
-		return this.getCurrentWindowStartTs() + this.opts.duration;
+		return this.getCurrentWindowStartTs() + this.opts.windowSizeMs;
 	}
 
 	private getCurrentWindowStartTs(): number {
 		const start = this.opts.startDate.getTime();
-		const duration = this.opts.duration;
+		const duration = this.opts.windowSizeMs;
 		return Math.floor((Date.now() - start) / duration) * duration + start;
 	}
 }

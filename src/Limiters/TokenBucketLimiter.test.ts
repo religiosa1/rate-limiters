@@ -41,7 +41,7 @@ describe.each([
 			try {
 				const clientId = crypto.randomUUID();
 				const tbl = new Limiter(client, {
-					refillInterval: 1000,
+					refillIntervalMs: 1000,
 					refillRate: 1,
 					limit: 3,
 				});
@@ -53,17 +53,17 @@ describe.each([
 				expect(n1).toBeCloseTo(0.0);
 
 				// Half of refill rate -- half of token is there.
-				vi.advanceTimersByTime(tbl.opts.refillInterval / 2);
+				vi.advanceTimersByTime(tbl.opts.refillIntervalMs / 2);
 				const n2 = await tbl.calculateRefilledTokenAmount(clientId);
 				expect(n2).toBeCloseTo(0.5);
 
 				// The rest of the time for full refill, must be up to the limit
-				vi.advanceTimersByTime(tbl.opts.refillInterval * 2.5);
+				vi.advanceTimersByTime(tbl.opts.refillIntervalMs * 2.5);
 				const n3 = await tbl.calculateRefilledTokenAmount(clientId);
 				expect(n3).toBeCloseTo(3);
 
 				// TSome additional time passed, it won't go above maximum
-				vi.advanceTimersByTime(tbl.opts.refillInterval * 2.5);
+				vi.advanceTimersByTime(tbl.opts.refillIntervalMs * 2.5);
 				const n4 = await tbl.calculateRefilledTokenAmount(clientId);
 				expect(n4).toBeCloseTo(3);
 			} finally {
@@ -73,7 +73,7 @@ describe.each([
 
 		it("allows to get the refill amount in ms tokens", async () => {
 			const tbl = new Limiter(client, {
-				refillInterval: 1000,
+				refillIntervalMs: 1000,
 				refillRate: 2,
 			});
 
@@ -86,21 +86,21 @@ describe.each([
 			expect(
 				new Limiter(client, {
 					limit: 4,
-					refillInterval: 1000,
+					refillIntervalMs: 1000,
 					refillRate: 2,
 				}).timeForCompleteRefillMs
 			).toBe(2000);
 			expect(
 				new Limiter(client, {
 					limit: 6,
-					refillInterval: 3000,
+					refillIntervalMs: 3000,
 					refillRate: 1,
 				}).timeForCompleteRefillMs
 			).toBe(18_000);
 			expect(
 				new Limiter(client, {
 					limit: 10,
-					refillInterval: 1000,
+					refillIntervalMs: 1000,
 					refillRate: 10,
 				}).timeForCompleteRefillMs
 			).toBe(1000);
