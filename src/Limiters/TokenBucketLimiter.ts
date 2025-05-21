@@ -26,7 +26,7 @@ type TokenBucketLimiterOpts = z.infer<typeof tokenBucketLimiterOptsSchema>;
  * for a bucket to fully refill (it doesn't account for the current bucket value).
  * Refill is calculated and stored during the applyLimit call.
  *
- * This version of class executes all operations in memory, performing multiple
+ * This version of class calculates limit in js runtime, performing multiple
  * requests to valkey in applyLimit method andd thus is susceptible to race
  * conditions during simultaneous requests from the same client which results in
  * false negatives. Use the version of the class without NoLua suffix to address
@@ -37,7 +37,7 @@ export class TokenBucketLimiterNoLua implements IRateLimiter {
 		limit: 5,
 		refillInterval: 10_000,
 		refillRate: 1,
-		keyPrefix: "tokenbucket",
+		keyPrefix: "token_bucket_limiter",
 	};
 
 	public readonly opts: TokenBucketLimiterOpts;
@@ -51,7 +51,7 @@ export class TokenBucketLimiterNoLua implements IRateLimiter {
 		if (opts != null) {
 			tokenBucketLimiterOptsSchema.partial().parse(opts);
 		}
-		this.opts = { ...TokenBucketLimiter.defaultOpts, ...opts };
+		this.opts = { ...TokenBucketLimiterNoLua.defaultOpts, ...opts };
 	}
 
 	/** Applies limiting to a client's id.
@@ -61,7 +61,7 @@ export class TokenBucketLimiterNoLua implements IRateLimiter {
 	async applyLimit(clientId: string): Promise<boolean> {
 		const currentLimit = await this.valkey.get(this.getNTokensKey(clientId));
 		if (currentLimit == null) {
-			await this.insertDefaultValue(clientId);
+			await this.updateBucket(clientId, this.opts.limit - 1);
 			return false;
 		}
 		const refilledLimit = +currentLimit + (await this.calculateRefilledTokenAmount(clientId));
@@ -114,14 +114,6 @@ export class TokenBucketLimiterNoLua implements IRateLimiter {
 		await this.valkey.exec(transaction);
 	}
 
-	private async insertDefaultValue(clientId: string): Promise<void> {
-		const expiry = this.getExpiration();
-		const transaction = new Transaction()
-			.set(this.getNTokensKey(clientId), (this.opts.limit - 1).toString(), { expiry })
-			.set(this.getTsKey(clientId), Date.now().toString(), { expiry });
-		await this.valkey.exec(transaction);
-	}
-
 	private getExpiration() {
 		return {
 			type: TimeUnit.Milliseconds,
@@ -143,7 +135,7 @@ export class TokenBucketLimiterNoLua implements IRateLimiter {
  * This version of class executes applyLimit operations as a lua script on the
  * valkey instance, to avoid potential race conditions.
  */
-export class TokenBucketLimiter extends TokenBucketLimiterNoLua implements IRateLimiter {
+export class TokenBucketLimiter extends TokenBucketLimiterNoLua {
 	private static readonly luaScript = new Script(d`
 		local tokens_key = KEYS[1]
 		local ts_key = KEYS[2]
@@ -158,11 +150,8 @@ export class TokenBucketLimiter extends TokenBucketLimiterNoLua implements IRate
 		local tokens = tonumber(redis.call('GET', tokens_key))
 		local last_ts = tonumber(redis.call('GET', ts_key))
 
-		if tokens == nil then
+		if tokens == nil or last_ts == nil  then
 			tokens = limit
-		end
-
-		if last_ts == nil then
 			last_ts = now_ms
 		else 
 			local elapsed_ms = now_ms - last_ts
@@ -173,17 +162,17 @@ export class TokenBucketLimiter extends TokenBucketLimiterNoLua implements IRate
 		end
 
 		${"" /* Attempt to consume a token */}
-		local limited = 1
+		local is_limited = 1
 		if tokens >= 1.0 then
 			tokens = tokens - 1.0
-			limited = 0
+			is_limited = 0
 		end
 
 		${"" /* Update keys with new data, setting expiration */}
 		redis.call('SET', tokens_key, tostring(math.max(tokens, 0)), "PX", expire_ms)
 		redis.call('SET', ts_key, tostring(now_ms), "PX", expire_ms)
 
-		return limited`);
+		return is_limited`);
 
 	/** Applies limiting to a client's id.
 	 * @param clientId client unique id

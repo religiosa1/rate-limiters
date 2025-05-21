@@ -6,7 +6,14 @@ I decided to create some simple implementation in node js, using
 [valkey](https://valkey.io/) storage via [GLIDE](https://valkey.io/valkey-glide/)
 client.
 
-This app, is a web-service, which provides endpoints with different
+Available limiter types:
+
+- [Fixed Window](./src//Limiters/FixedWindowLimiter.ts)
+- [Sliding Window](./src/Limiters/SlidingWindowLimiter.ts)
+- Floating Window aka Approximated Sliding Window TODO
+- [Token Bucket](./src/Limiters/TokenBucketLimiter.ts)
+
+The app itself, is a web-service, which provides endpoints with different
 rate-limiting strategies.
 
 ```http

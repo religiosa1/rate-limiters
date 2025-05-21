@@ -3,6 +3,8 @@ import d from "ts-dedent";
 import { Script, Transaction, type GlideClient } from "@valkey/valkey-glide";
 import type { IRateLimiter } from "./IRateLimiter";
 
+// TODO: Support for user define start, instead of predefined start date.
+
 const fixedWindowLimiterOptsSchema = z.object({
 	/** Fixed Window size in ms */
 	duration: z.number().int().positive(),
@@ -22,7 +24,7 @@ type FixedWindowLimiterOpts = z.infer<typeof fixedWindowLimiterOptsSchema>;
  * calls increase the value of this counter, and if it's greater than or equal
  * to the limit option, the request will be considered limited.
  *
- * This version of class executes all operations in memory, performing multiple
+ * This version of class calculates limit in js runtime, performing multiple
  * requests to valkey in applyLimit method andd thus is susceptible to race
  * conditions during simultaneous requests from the same client which results in
  * false negatives. Use the version of the class without NoLua suffix to address
@@ -33,7 +35,7 @@ export class FixedWindowLimiterNoLua implements IRateLimiter {
 		duration: 60_000,
 		limit: 1,
 		startDate: new Date(0),
-		keyPrefix: "fixed_window_limiter:",
+		keyPrefix: "fixed_window_limiter",
 	};
 
 	public readonly opts: FixedWindowLimiterOpts;
@@ -42,7 +44,7 @@ export class FixedWindowLimiterNoLua implements IRateLimiter {
 		if (opts != null) {
 			fixedWindowLimiterOptsSchema.partial().parse(opts);
 		}
-		this.opts = { ...FixedWindowLimiter.defaultOpts, ...opts };
+		this.opts = { ...FixedWindowLimiterNoLua.defaultOpts, ...opts };
 	}
 
 	/** Applies limiting to a client's id.
@@ -83,10 +85,10 @@ export class FixedWindowLimiterNoLua implements IRateLimiter {
 
 	private async trackRequest(clientId: string): Promise<void> {
 		const key = this.getClientKey(clientId);
-		const expireAt = this.getCurrentWindowStopTs() / 1000;
+		const expireAt = this.getCurrentWindowStopTs();
 		const tx = new Transaction()
 			.incr(key) //
-			.expireAt(key, expireAt);
+			.pexpireAt(key, expireAt);
 		await this.valkey.exec(tx);
 	}
 }
@@ -105,16 +107,16 @@ export class FixedWindowLimiter extends FixedWindowLimiterNoLua {
 	private static readonly luaScript = new Script(d`
 		local key = KEYS[1]
 		local limit = tonumber(ARGV[1])
-		local expire_at_seconds = tonumber(ARGV[2])
+		local expire_at_ms = tonumber(ARGV[2])
 
-		local current_count = redis.call('INCR', key)
+		local count = redis.call('INCR', key)
 
-		if current_count == 1 then
+		if count == 1 then
 			${"" /* This is the first request in the window, set expiration */}
-			redis.call('EXPIREAT', key, expire_at_seconds)
+			redis.call('PEXPIREAT', key, expire_at_ms)
 		end
 
-		if current_count > limit then
+		if count > limit then
 			return 1 ${"" /* Rate limited */}
 		else
 			return 0 ${"" /* Allowed */}
@@ -124,13 +126,13 @@ export class FixedWindowLimiter extends FixedWindowLimiterNoLua {
 	 * @param clientId client unique id
 	 * @returns true if request should be limited, false otherwise
 	 */
-	async applyLimit(clientId: string): Promise<boolean> {
+	override async applyLimit(clientId: string): Promise<boolean> {
 		const key = this.getClientKey(clientId);
-		const expireAtSeconds = Math.floor(this.getCurrentWindowStopTs() / 1000);
+		const expireAtMs = Math.floor(this.getCurrentWindowStopTs());
 
 		const result = await this.valkey.invokeScript(FixedWindowLimiter.luaScript, {
 			keys: [key],
-			args: [this.opts.limit.toString(), expireAtSeconds.toString()],
+			args: [this.opts.limit.toString(), expireAtMs.toString()],
 		});
 
 		// Valkey EVAL returns 0 for false, 1 for true from Lua script
