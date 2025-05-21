@@ -2,7 +2,9 @@
 
 Inspired by [this article](https://smudge.ai/blog/ratelimit-algorithms),
 describing various strategies of implementing a rate-limtier for a web-service,
-I decided to create some simple implementation in node js.
+I decided to create some simple implementation in node js, using
+[valkey](https://valkey.io/) storage via [GLIDE](https://valkey.io/valkey-glide/)
+client.
 
 This app, is a web-service, which provides endpoints with different
 rate-limiting strategies.
@@ -12,13 +14,19 @@ GET localhost:8000
 X-Client-Id: some-client-id
 ```
 
-As it's a test implementation, more of an execrise than a real prod ready
-solution, I tried not to overcomplicate things. Technically, as every
-`applyLimit` performs multiple calls to valkey, there's a race condition
-possibility, where some requests can come in between calls to valkey, and thus
-are falsly treated as not limited. But the chance is rather small (we're talking
-about miliseconds of opportunity window), and the alternative is to run the
-whole method as a lua script in the valkey itself, I consider this acceptable.
+Each limiter is written as a class, implementing
+[IRateLimiter](./src//Limiters//IRateLimiter.ts) interface. Each limiter
+is supplied in two versions -- one performing applyOperation in JS with multiple
+separate calls to valkey instance, and one executing applyOperation as a Lua
+script on the valkey instance.
+
+- The former always have `NoLua` suffix in its name is susceptible to
+  race conditions during simultaneous requests from the same client which
+  results in false negatives. It's a secondary, supportive version here mostly
+  as a pure exercise, if you want to keep logic rather simpler than robust or
+  if you can't execute Lua on your valkey instance for whatever reason.
+- The later not having not having `NoLua` suffix is more robust version, as it's
+  safe against race conditions. This is the main impelemntation.
 
 ## Running the project
 

@@ -1,10 +1,13 @@
 import { describe, it, beforeAll, afterAll, expect, vi } from "vitest";
 import { StartedValkeyContainer, ValkeyContainer } from "@testcontainers/valkey";
 import { GlideClient } from "@valkey/valkey-glide";
-import { FixedWindowLimiter } from "./FixedWindowLimiter";
+import { FixedWindowLimiter, FixedWindowLimiterNoLua } from "./FixedWindowLimiter";
 import { Time } from "./consts";
 
-describe("FixedWindowLimiter", () => {
+describe.each([
+	["No lua", FixedWindowLimiterNoLua],
+	["Lua", FixedWindowLimiter],
+])("%s: FixedWindowLimiter", (_, Limiter) => {
 	let container: StartedValkeyContainer;
 	let client: GlideClient;
 
@@ -27,7 +30,7 @@ describe("FixedWindowLimiter", () => {
 
 	it("limits the requests to the amount in fixed period", async () => {
 		const clientId = crypto.randomUUID();
-		const fwl = new FixedWindowLimiter(client, {
+		const fwl = new Limiter(client, {
 			limit: 5,
 			duration: 3 * Time.Minute,
 		});
@@ -43,7 +46,7 @@ describe("FixedWindowLimiter", () => {
 
 	it("drops limits after predefined amount of time has passed", async () => {
 		const clientId = crypto.randomUUID();
-		const fwl = new FixedWindowLimiter(client, {
+		const fwl = new Limiter(client, {
 			limit: 5,
 			duration: 3 * Time.Minute,
 		});
@@ -64,7 +67,7 @@ describe("FixedWindowLimiter", () => {
 
 	it("partially exhausted limits in the previous quant have no impact on current limits", async () => {
 		const clientId = crypto.randomUUID();
-		const fwl = new FixedWindowLimiter(client, {
+		const fwl = new Limiter(client, {
 			limit: 5,
 			duration: 3 * Time.Minute,
 		});
