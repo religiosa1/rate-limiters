@@ -42,5 +42,21 @@ describe.each([
 		expect(result).toBe(true);
 	});
 
-	// TODO rest of the tests
+	it("treats requests from separate clients separately", async () => {
+		const clientId1 = crypto.randomUUID();
+		const swl = new Limiter(client, { limit: 3, windowSizeMs: 10_000 });
+
+		for (let i = 0; i < swl.opts.limit; i++) {
+			const result = await swl.applyLimit(clientId1);
+			expect(result).toBe(false);
+			vi.advanceTimersByTime(50);
+		}
+
+		const clientId2 = crypto.randomUUID();
+		for (let i = 0; i < swl.opts.limit; i++) {
+			const result = await swl.applyLimit(clientId2);
+			expect(result).toBe(false);
+			vi.advanceTimersByTime(50);
+		}
+	});
 });

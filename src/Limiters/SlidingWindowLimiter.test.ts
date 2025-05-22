@@ -27,7 +27,39 @@ describe.each([
 		await container.stop();
 	});
 
-	it("limits the amount of request in a window to the predefined amount", async () => {
+	it("limits the request, if it exceeds the allowance", async () => {
+		const clientId = crypto.randomUUID();
+		const swl = new Limiter(client, { limit: 3, windowSizeMs: 10_000 });
+
+		for (let i = 0; i < swl.opts.limit; i++) {
+			const result = await swl.applyLimit(clientId);
+			expect(result).toBe(false);
+			vi.advanceTimersByTime(50);
+		}
+
+		const r1 = await swl.applyLimit(clientId);
+		expect(r1).toBe(true);
+	});
+
+	it("treats requests from separate clients separately", async () => {
+		const clientId1 = crypto.randomUUID();
+		const swl = new Limiter(client, { limit: 3, windowSizeMs: 10_000 });
+
+		for (let i = 0; i < swl.opts.limit; i++) {
+			const result = await swl.applyLimit(clientId1);
+			expect(result).toBe(false);
+			vi.advanceTimersByTime(50);
+		}
+
+		const clientId2 = crypto.randomUUID();
+		for (let i = 0; i < swl.opts.limit; i++) {
+			const result = await swl.applyLimit(clientId2);
+			expect(result).toBe(false);
+			vi.advanceTimersByTime(50);
+		}
+	});
+
+	it("refills the allowance one by one, after the windowSizeMs time since the last request", async () => {
 		const clientId = crypto.randomUUID();
 		const swl = new Limiter(client, { limit: 3, windowSizeMs: 10_000 });
 		const timeStep = 50;
@@ -35,16 +67,41 @@ describe.each([
 		for (let i = 0; i < swl.opts.limit; i++) {
 			const result = await swl.applyLimit(clientId);
 			expect(result).toBe(false);
-			vi.advanceTimersByTime(50);
+			vi.advanceTimersByTime(timeStep);
 		}
 		// after duration - spentTime ms first request must be available
 		vi.advanceTimersByTime(swl.opts.windowSizeMs - timeStep * swl.opts.limit);
 		const r1 = await swl.applyLimit(clientId);
 		expect(r1).toBe(false);
+		// next request will be available after the previous request also expires
+		vi.advanceTimersByTime(timeStep);
+		const r3 = await swl.applyLimit(clientId);
+		expect(r3).toBe(false);
 		// but only 1 request shoul be available
 		const r2 = await swl.applyLimit(clientId);
 		expect(r2).toBe(true);
 	});
 
-	// TODO rest of the tests
+	describe("getAvailableRequestsAmount", () => {
+		it("allows to get the current available requests amount", async () => {
+			const clientId = crypto.randomUUID();
+			const swl = new Limiter(client, { limit: 3, windowSizeMs: 10_000 });
+			const timeStep = 50;
+
+			for (let i = 0; i < swl.opts.limit; i++) {
+				const currentLimit = await swl.getAvailableRequestsAmount(clientId);
+				expect(currentLimit).toBe(swl.opts.limit - i);
+				const result = await swl.applyLimit(clientId);
+				expect(result).toBe(false);
+				vi.advanceTimersByTime(timeStep);
+			}
+		});
+
+		it("if no requests registered for the client, returns the limit value", async () => {
+			const clientId = crypto.randomUUID();
+			const swl = new Limiter(client, { limit: 3, windowSizeMs: 10_000 });
+			const currentLimit = await swl.getAvailableRequestsAmount(clientId);
+			expect(currentLimit).toBe(swl.opts.limit);
+		});
+	});
 });

@@ -33,7 +33,51 @@ describe.each([
 		expect(isLimited).toBe(true);
 	});
 
-	// TODO test refill on actual token consumption
+	it("treats requests from separate clients separately", async () => {
+		const clientId1 = crypto.randomUUID();
+		const swl = new Limiter(client, { limit: 3, refillIntervalMs: 10_000 });
+
+		for (let i = 0; i < swl.opts.limit; i++) {
+			const result = await swl.applyLimit(clientId1);
+			expect(result).toBe(false);
+		}
+
+		const clientId2 = crypto.randomUUID();
+		for (let i = 0; i < swl.opts.limit; i++) {
+			const result = await swl.applyLimit(clientId2);
+			expect(result).toBe(false);
+		}
+	});
+
+	it("refills in the expected time", async () => {
+		vi.useFakeTimers();
+		try {
+			const clientId = crypto.randomUUID();
+			const tbl = new Limiter(client, {
+				refillIntervalMs: 1000,
+				refillRate: 1,
+				limit: 3,
+			});
+			// exchausting the bucket completely
+			for (let i = 0; i < tbl.opts.limit; i++) {
+				expect(await tbl.applyLimit(clientId)).toBe(false);
+			}
+			expect(await tbl.applyLimit(clientId)).toBe(true);
+
+			// iterating from 1
+			for (let i = 1; i <= tbl.opts.limit; i++) {
+				vi.advanceTimersByTime(tbl.opts.refillIntervalMs * i);
+				// i requests must be available after waiting for refillInterval * i
+				for (let j = 0; j < i; j++) {
+					expect(await tbl.applyLimit(clientId)).toBe(false);
+				}
+				// next request is dead though
+				expect(await tbl.applyLimit(clientId)).toBe(true);
+			}
+		} finally {
+			vi.useRealTimers();
+		}
+	});
 
 	describe("helper methods -- js calculation", () => {
 		it("calculates the refil rate in the expected time", async () => {
