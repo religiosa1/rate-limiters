@@ -34,8 +34,8 @@ type TokenBucketLimiterOpts = z.infer<typeof tokenBucketLimiterOptsSchema>;
  */
 export class TokenBucketLimiterNoLua implements IRateLimiter {
 	static readonly defaultOpts: TokenBucketLimiterOpts = {
-		limit: 5,
-		refillIntervalMs: 10_000,
+		limit: 20,
+		refillIntervalMs: 3_000,
 		refillRate: 1,
 		keyPrefix: "token_bucket_limiter",
 	};
@@ -181,12 +181,12 @@ export class TokenBucketLimiter extends TokenBucketLimiterNoLua {
 	override async applyLimit(clientId: string): Promise<boolean> {
 		const expireMs = Math.ceil(this.timeForCompleteRefillMs);
 
-		const count = await this.valkey.invokeScript(TokenBucketLimiter.luaScript, {
+		const result = await this.valkey.invokeScript(TokenBucketLimiter.luaScript, {
 			keys: [this.getNTokensKey(clientId), this.getTsKey(clientId)],
 			args: [this.opts.limit, expireMs, Date.now(), this.opts.refillIntervalMs, this.opts.refillRate].map(String),
 		});
 
 		// Valkey EVAL returns 0 for false, 1 for true from Lua script
-		return count === 1;
+		return result === 1;
 	}
 }

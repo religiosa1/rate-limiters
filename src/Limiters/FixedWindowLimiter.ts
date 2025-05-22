@@ -31,7 +31,7 @@ type FixedWindowLimiterOpts = z.infer<typeof fixedWindowLimiterOptsSchema>;
 export class FixedWindowLimiterNoLua implements IRateLimiter {
 	static readonly defaultOpts: FixedWindowLimiterOpts = {
 		windowSizeMs: 60_000,
-		limit: 1,
+		limit: 20,
 		startDate: new Date(0),
 		keyPrefix: "fixed_window_limiter",
 	};
@@ -57,11 +57,7 @@ export class FixedWindowLimiterNoLua implements IRateLimiter {
 			.pexpireAt(key, expireAt);
 		const [count] = (await this.valkey.exec(tx)) ?? [];
 
-		if (typeof count === "number" && count > this.opts.limit) {
-			return true;
-		}
-
-		return false;
+		return typeof count === "number" && count > this.opts.limit;
 	}
 
 	/** Get the amount of requests performed during the current window (<= limit) */
@@ -87,7 +83,7 @@ export class FixedWindowLimiterNoLua implements IRateLimiter {
 	}
 }
 
-/** Fixed window limiter.
+/** Fixed window limiter -- lua on valkey version.
  *
  * Stores the amount of requests per window in a single key, which contains
  * window start timestamp and expires, when the window expires. applyLimit
@@ -130,6 +126,6 @@ export class FixedWindowLimiter extends FixedWindowLimiterNoLua {
 		});
 
 		// Valkey EVAL returns 0 for false, 1 for true from Lua script
-		return !!result;
+		return result === 1;
 	}
 }

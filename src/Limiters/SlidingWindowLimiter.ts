@@ -58,10 +58,8 @@ export class SlidingWindowLimiterNoLua implements IRateLimiter {
 			.pexpireAt(key, nowTs + this.opts.windowSizeMs)
 			.zcount(key, { value: windowStartTs }, { value: nowTs });
 		const [, , , count] = (await this.valkey.exec(tx)) ?? [];
-		if (typeof count === "number" && count > this.opts.limit) {
-			return true;
-		}
-		return false;
+
+		return typeof count === "number" && count > this.opts.limit;
 	}
 
 	/** Gets the amount of requests available in the current window, without

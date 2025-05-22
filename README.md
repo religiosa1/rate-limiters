@@ -1,34 +1,54 @@
-# Simple implementation of rate limiting strategies
+# NodeJS/Typescript implementation of various rate limiter strategies
 
 Inspired by [this article](https://smudge.ai/blog/ratelimit-algorithms),
-describing various strategies of implementing a rate-limtier for a web-service,
-I decided to create some simple implementation in node js, using
-[valkey](https://valkey.io/) storage via [GLIDE](https://valkey.io/valkey-glide/)
+describing various strategies of rate-limtier for a web-service,
+I decided to create some Typescript implementation in node js, using
+[valkey](https://valkey.io/) storage with [GLIDE](https://valkey.io/valkey-glide/)
 client.
 
 Available limiter types:
 
-- [Fixed Window](./src//Limiters/FixedWindowLimiter.ts)
-- [Sliding Window](./src/Limiters/SlidingWindowLimiter.ts)
-- Floating Window aka Approximated Sliding Window TODO
-- [Token Bucket](./src/Limiters/TokenBucketLimiter.ts)
+- [Fixed Window](./src//Limiters/FixedWindowLimiter.ts) splits time in fixed
+  chunks -- windows -- and tracks the number of requests per chunk. Dead
+  simple: requires only one counter per client. However, it allows bursts of
+  requests at the boundary between two windows. Refills all at once when the
+  window ends.
+- [Sliding Window](./src/Limiters/SlidingWindowLimiter.ts) tracks the timestamp
+  of every request for the window duration. If a client hits the limit, their
+  allowance refills one-by-one as requests age out of the window. This is the
+  most accurate method but also the most resource- and memory-intensive.
+- [Floating Window](./src/Limiters/FloatingWindowLimiter.ts) aka Approximated
+  Sliding Window. Splits time into fixed chunks and keeps counters for both the
+  current and previous chunks, but estimates the amount of requests for a
+  virtual sliding window as follows:
+  $`prevWindowCount * prevWindowRate + currentWindowCount`$
+  where $prevWindowRate$ is the proportion of the previous window that overlaps
+  with the sliding duration.
+  It uses math to closely approximate a sliding window with just two counters
+  per client, but it’s not 100% accurate. Allowance refils one-by-one.
+- [Token Bucket](./src/Limiters/TokenBucketLimiter.ts) maintains a count of
+  available requests and the timestamp of the last request per client. Instead
+  of using fixed windows, it applies a refill rate, allowing tokens (requests)
+  to replenish over time. Replenishment is calculated when new requests arrive.
+  Think mana in computer games. More complex, but it only needs a counter
+  and a timestamp per client in Valkey
 
-Each limiter is written as a class, implementing
-[IRateLimiter](./src//Limiters//IRateLimiter.ts) interface. Each limiter
-is supplied in two versions -- one performing applyOperation in JS with either
-multiple calls to valkey instance (either completely separate or in a single
-transaction), and one executing applyOperation as a Lua script on the valkey
-instance.
+Each limiter is implemented as a class, conforming to the
+[IRateLimiter](./src//Limiters//IRateLimiter.ts) interface. Each limiter is
+provided in two versions: one where `applyLimit` metho is executed in only in TS
+(involving multiple calls to the Valkey instance, either separately or in a
+single transaction), and one where `applyLimit` is executed as a Lua script
+directly on the Valkey instance.
 
-- The former always have `NoLua` suffix in its name is susceptible to
-  race conditions during simultaneous requests from the same client which may
-  results in false negatives. It's a secondary, supportive version here mostly
-  as a pure exercise, if you want to keep logic rather simpler than robust or
-  if you can't execute Lua on your valkey instance for whatever reason. This
-  version also can't be run on valeky in the cluster mode.
-- The later not having not having `NoLua` suffix is more robust version, as it's
-  safe against race conditions and can be run in the cluster mode. This is the
-  main implementation.
+- The former version always has a `NoLua` suffix in its name. It is susceptible
+  to race conditions during simultaneous requests from the same client, which
+  may result in false negatives. It serves primarily as a simpler or
+  fallback implementation -- for cases where Lua cannot be used or when
+  simplicity is preferred over robustness. This version also **cannot** be used
+  with Valkey in cluster mode.
+- The latter version, without the NoLua suffix, is the more robust
+  implementation. It is safe against race conditions and is compatible with
+  Valkey cluster mode. This is the **recommended** and main implementation.
 
 The app itself, is a web-service, which provides endpoints with different
 rate-limiting strategies.
@@ -42,6 +62,7 @@ Where `:limiterName` name matches available limiter type in kebab-case:
 
 - `fixed-window`
 - `sliding-window`
+- `floating-window`
 - `token-bucket`
 
 ## Running the project
@@ -70,3 +91,21 @@ liking, using curl as an example:
 ```
 curl http://localhost:8000/fixed-window -H 'x-client-id: 1'
 ```
+
+## Running unit-tests
+
+Unit tests are written using [vitest](https://vitest.dev/) and
+[Testcontainers](https://testcontainers.com/) to run against a Valkey container
+without mocks. It requires a rootless Docker daemon running on your PC, as well
+as nodejs22+
+
+To run the tests:
+
+```sh
+npm run test
+```
+
+## License
+
+Whatever this is, it's MIT-licensed, you can use it freely, with no restrictions
+or warranties.

@@ -7,6 +7,7 @@ import { TokenBucketLimiter } from "./Limiters/TokenBucketLimiter";
 import { SlidingWindowLimiter } from "./Limiters/SlidingWindowLimiter";
 import { createMiddleware } from "hono/factory";
 import type { IRateLimiter } from "./Limiters/IRateLimiter";
+import { FloatingWindowLimiter } from "./Limiters/FloatingWindowLimiter";
 
 const app = new Hono();
 
@@ -27,6 +28,7 @@ const commonLimiterOpts = { limit, windowSizeMs };
 
 app.use("/fixed-window", limiterMiddleware(new FixedWindowLimiter(client, commonLimiterOpts)));
 app.use("/sliding-window", limiterMiddleware(new SlidingWindowLimiter(client, commonLimiterOpts)));
+app.use("/floating-window", limiterMiddleware(new FloatingWindowLimiter(client, commonLimiterOpts)));
 app.use("/token-bucket", limiterMiddleware(new TokenBucketLimiter(client, { limit, refillIntervalMs: 2_000 })));
 
 app.get("*", (c) => {
