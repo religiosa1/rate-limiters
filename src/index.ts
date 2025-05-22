@@ -14,6 +14,8 @@ const app = new Hono();
 const limiterMiddleware = (limiter: IRateLimiter) =>
 	createMiddleware(async (c, next) => {
 		const clientId = c.req.header("X-Client-Id");
+		// TODO: return not bool, but the amount of hits left and set a header
+		// like x-ratelimit-remaining
 		const isLimited = await limiter.applyLimit(clientId ?? "");
 		if (isLimited) {
 			throw new HTTPException(429);

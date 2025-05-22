@@ -4,7 +4,7 @@ import { Script, TimeUnit, Transaction, type GlideClient } from "@valkey/valkey-
 import type { IRateLimiter } from "./IRateLimiter";
 
 const tokenBucketLimiterOptsSchema = z.object({
-	/** Maximum amount of request for a client in the bucket  */
+	/** Maximum amount of hits for a client in the bucket  */
 	limit: z.number().int().positive(),
 	/** Refill interval of token bucket in milliseconds */
 	refillIntervalMs: z.number().positive().int(),
@@ -27,8 +27,8 @@ type TokenBucketLimiterOpts = z.infer<typeof tokenBucketLimiterOptsSchema>;
  * Refill is calculated and stored during the applyLimit call.
  *
  * This version of class calculates limit in js runtime, performing multiple
- * requests to valkey in applyLimit method andd thus is susceptible to race
- * conditions during simultaneous requests from the same client which results in
+ * hits to valkey in applyLimit method andd thus is susceptible to race
+ * conditions during simultaneous hits from the same client which results in
  * false negatives. Use the version of the class without NoLua suffix to address
  * the issue.
  */
@@ -56,22 +56,30 @@ export class TokenBucketLimiterNoLua implements IRateLimiter {
 
 	/** Applies limiting to a client's id.
 	 * @param clientId client unique id
-	 * @returns true if request should be limited, false otherwise
+	 * @returns true if hit should be limited, false otherwise
 	 */
 	async applyLimit(clientId: string): Promise<boolean> {
+		const nowTs = Date.now();
 		const currentLimit = await this.valkey.get(this.getNTokensKey(clientId));
 		if (currentLimit == null) {
-			await this.updateBucket(clientId, this.opts.limit - 1);
+			await this.updateBucket(clientId, this.opts.limit - 1, nowTs);
 			return false;
 		}
-		const refilledLimit = +currentLimit + (await this.calculateRefilledTokenAmount(clientId));
+		const refilledLimit = +currentLimit + (await this.calculateRefilledTokenAmountAtTime(clientId, nowTs));
 		// As refilled amount is float, comparing against 1, to cut off partial refils, like 0.75
 		if (refilledLimit < 1.0) {
 			return true;
 		}
 
-		await this.updateBucket(clientId, refilledLimit - 1);
+		await this.updateBucket(clientId, refilledLimit - 1, nowTs);
 		return false;
+	}
+
+	/** Get the amount of hits a client perform right now. */
+	async getAvailableHits(clientId: string): Promise<number> {
+		const tokensLeft = +((await this.valkey.get(this.getNTokensKey(clientId))) ?? 0);
+		const refil = await this.calculateRefilledTokenAmountAtTime(clientId, Date.now());
+		return tokensLeft + refil;
 	}
 
 	/** Calculates the current token amount with calculated refill as float.
@@ -79,14 +87,13 @@ export class TokenBucketLimiterNoLua implements IRateLimiter {
 	 * Notice, it's an a calculation based on the ellapsed time since last update
 	 * and bucket value captured at that time, it's not the actual stored value.
 	 */
-	async calculateRefilledTokenAmount(clientId: string): Promise<number> {
+	private async calculateRefilledTokenAmountAtTime(clientId: string, ts: number): Promise<number> {
 		const tsStr = await this.valkey.get(this.getTsKey(clientId));
 		if (!tsStr) {
 			return this.opts.limit;
 		}
-		const now = Date.now();
 		const lastTs = +tsStr || 0;
-		const elapsedMs = now - lastTs;
+		const elapsedMs = ts - lastTs;
 
 		return Math.min(this.getRefillAmountInMs(elapsedMs), this.opts.limit);
 	}
@@ -105,12 +112,12 @@ export class TokenBucketLimiterNoLua implements IRateLimiter {
 		return `${this.opts.keyPrefix}:updatedAt:${clientId}`;
 	}
 
-	private async updateBucket(clientId: string, nTokens: number): Promise<void> {
+	private async updateBucket(clientId: string, nTokens: number, nowTs: number): Promise<void> {
 		const expiry = this.getExpiration();
 		const clampedNToken = Math.max(Math.min(nTokens, this.opts.limit), 0);
 		const transaction = new Transaction()
 			.set(this.getNTokensKey(clientId), clampedNToken.toString(), { expiry })
-			.set(this.getTsKey(clientId), Date.now().toString(), { expiry });
+			.set(this.getTsKey(clientId), nowTs.toString(), { expiry });
 		await this.valkey.exec(transaction);
 	}
 
@@ -176,7 +183,7 @@ export class TokenBucketLimiter extends TokenBucketLimiterNoLua {
 
 	/** Applies limiting to a client's id.
 	 * @param clientId client unique id
-	 * @returns true if request should be limited, false otherwise
+	 * @returns true if hit should be limited, false otherwise
 	 */
 	override async applyLimit(clientId: string): Promise<boolean> {
 		const expireMs = Math.ceil(this.timeForCompleteRefillMs);

@@ -8,7 +8,7 @@ const floatingWindowLimiterOptsSchema = z.object({
 	windowSizeMs: z.number().int().positive(),
 	/** First window start, e.g. start of the day */
 	startDate: z.date(),
-	/** Maximum amount of requests in the window */
+	/** Maximum amount of hits in the window */
 	limit: z.number().int().positive(),
 	/** Valkey keys prefix */
 	keyPrefix: z.string(),
@@ -42,35 +42,52 @@ export class FloatingWindowLimiterNoLua implements IRateLimiter {
 		this.opts = { ...FloatingWindowLimiterNoLua.defaultOpts, ...opts };
 	}
 
+	/** Applies limiting to a client's id.
+	 * @param clientId client unique id
+	 * @returns true if hit should be limited, false otherwise
+	 */
 	async applyLimit(clientId: string): Promise<boolean> {
 		const nowTs = Date.now();
 		const currentWindowStart = this.calcFixedWindowStartTs(nowTs);
-		const prevWindowStart = currentWindowStart - this.opts.windowSizeMs;
-		const expireAtMs = currentWindowStart + this.opts.windowSizeMs;
 
-		const prevKey = this.getClientWindowKey(clientId, currentWindowStart);
-		const curKey = this.getClientWindowKey(clientId, prevWindowStart);
+		const prevKey = this.getClientWindowKey(clientId, currentWindowStart - this.opts.windowSizeMs);
+		const curKey = this.getClientWindowKey(clientId, currentWindowStart);
 
 		const tx = new Transaction()
 			.get(prevKey) //
 			.incr(curKey)
-			.pexpireAt(curKey, expireAtMs);
+			.pexpireAt(curKey, currentWindowStart + this.opts.windowSizeMs);
 
 		let [prevCount, curCount] = (await this.valkey.exec(tx)) ?? [];
 
-		// If there were no requests -- setting as zeros
-		if (typeof prevCount != "number") {
-			prevCount = 0;
-		}
-		if (typeof curCount != "number") {
-			curCount = 0;
-		}
+		// If there were no hits -- setting as zeros
+		prevCount = prevCount == null ? 0 : Number(prevCount);
+		curCount = curCount == null ? 0 : Number(curCount);
 
 		const weight = this.calcPrevWindowWeight(nowTs);
-
 		const approx = prevCount * weight + curCount;
 
 		return approx > this.opts.limit;
+	}
+
+	/** Gets the amount of hits currently available to a client. */
+	async getAvailableHits(clientId: string): Promise<number> {
+		const nowTs = Date.now();
+		const currentWindowStart = this.calcFixedWindowStartTs(nowTs);
+
+		const prevKey = this.getClientWindowKey(clientId, currentWindowStart - this.opts.windowSizeMs);
+		const curKey = this.getClientWindowKey(clientId, currentWindowStart);
+
+		const tx = new Transaction()
+			.get(prevKey) //
+			.get(curKey);
+		let [prevCount, curCount] = (await this.valkey.exec(tx)) ?? [];
+		// If there were no hits -- setting as zeros
+		prevCount = prevCount == null ? 0 : Number(prevCount);
+		curCount = curCount == null ? 0 : Number(curCount);
+		const weight = this.calcPrevWindowWeight(nowTs);
+		const approx = prevCount * weight + curCount;
+		return this.opts.limit - approx;
 	}
 
 	protected calcPrevWindowWeight(nowTs: number): number {
@@ -116,7 +133,7 @@ export class FloatingWindowLimiter extends FloatingWindowLimiterNoLua {
     end
 		local count_current = tonumber(redis.call('INCR', key_current))
 		if count_current == 1 then
-			${"" /* This is the first request in the window, set expiration */}
+			${"" /* This is the first hit in the window, set expiration */}
 			redis.call('PEXPIREAT', key_current, expire_at_ms)
 		end
 
@@ -130,7 +147,7 @@ export class FloatingWindowLimiter extends FloatingWindowLimiterNoLua {
 
 	/** Applies limiting to a client's id.
 	 * @param clientId client unique id
-	 * @returns true if request should be limited, false otherwise
+	 * @returns true if hit should be limited, false otherwise
 	 */
 	override async applyLimit(clientId: string): Promise<boolean> {
 		const nowTs = Date.now();

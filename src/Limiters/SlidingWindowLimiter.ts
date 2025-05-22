@@ -6,7 +6,7 @@ import type { IRateLimiter } from "./IRateLimiter";
 const slidingWindowLimiterOptsSchema = z.object({
 	/** Sliding Window size in ms */
 	windowSizeMs: z.number().int().positive(),
-	/** Maximum amount of requests in the window */
+	/** Maximum amount of hits in the window */
 	limit: z.number().int().positive(),
 	/** Valkey keys prefix */
 	keyPrefix: z.string(),
@@ -15,7 +15,7 @@ type SlidingWindowLimiterOpts = z.infer<typeof slidingWindowLimiterOptsSchema>;
 
 /** Sliding window limiter -- transaction version.
  *
- * Stores multiple requests in ZSET in valkey and refills one request at the
+ * Stores multiple hits in ZSET in valkey and refills one hit at the
  * time.
  *
  * This version of class performs all of the operations in a single valkey
@@ -40,13 +40,13 @@ export class SlidingWindowLimiterNoLua implements IRateLimiter {
 
 	/** Applies limiting to a client's id.
 	 * @param clientId client unique id
-	 * @returns true if request should be limited, false otherwise
+	 * @returns true if hit should be limited, false otherwise
 	 */
 	async applyLimit(clientId: string): Promise<boolean> {
 		const nowTs = Date.now();
 		const windowStartTs = nowTs - this.opts.windowSizeMs;
 		const key = this.getClientKey(clientId);
-		await this.removeOutatedRequests(clientId, nowTs);
+		await this.removeExpiredHits(clientId, nowTs);
 		const tx = new Transaction()
 			.zremRangeByScore(key, InfBoundary.NegativeInfinity, { value: windowStartTs, isInclusive: true })
 			.zadd(key, [
@@ -62,14 +62,14 @@ export class SlidingWindowLimiterNoLua implements IRateLimiter {
 		return typeof count === "number" && count > this.opts.limit;
 	}
 
-	/** Gets the amount of requests available in the current window, without
-	 * tracking a request.
+	/** Gets the amount of hits available in the current window, without
+	 * tracking a hit.
 	 */
-	async getAvailableRequestsAmount(clientId: string): Promise<number> {
-		return await this.getAvailableRequestsAmountToTime(clientId, Date.now());
+	async getAvailableHits(clientId: string): Promise<number> {
+		return await this.getAvailableHitsAtTime(clientId, Date.now());
 	}
 
-	private async getAvailableRequestsAmountToTime(clientId: string, nowTs: number): Promise<number> {
+	private async getAvailableHitsAtTime(clientId: string, nowTs: number): Promise<number> {
 		const key = this.getClientKey(clientId);
 		const windowStartTs = nowTs - this.opts.windowSizeMs;
 		const count = await this.valkey.zcount(key, { value: windowStartTs }, { value: nowTs });
@@ -80,7 +80,7 @@ export class SlidingWindowLimiterNoLua implements IRateLimiter {
 		return `${this.opts.keyPrefix}:${clientId}`;
 	}
 
-	private async removeOutatedRequests(clientId: string, nowTs: number): Promise<void> {
+	private async removeExpiredHits(clientId: string, nowTs: number): Promise<void> {
 		const key = this.getClientKey(clientId);
 		const windowStartTs = nowTs - this.opts.windowSizeMs;
 		await this.valkey.zremRangeByScore(key, InfBoundary.NegativeInfinity, { value: windowStartTs, isInclusive: true });
@@ -89,7 +89,7 @@ export class SlidingWindowLimiterNoLua implements IRateLimiter {
 
 /** Sliding window limiter -- lua on valkey version.
  *
- * Stores multiple requests in ZSET in valkey and refills one request at the
+ * Stores multiple hits in ZSET in valkey and refills one hit at the
  * time.
  *
  * This version of class executes applyLimit operations as a lua script on the
@@ -98,7 +98,7 @@ export class SlidingWindowLimiterNoLua implements IRateLimiter {
 export class SlidingWindowLimiter extends SlidingWindowLimiterNoLua {
 	private static readonly luaScript = new Script(d`
       local key = KEYS[1]
-      local request_id = ARGV[1]
+      local hit_id = ARGV[1]
       local now_ts = tonumber(ARGV[2])
       local window_size = tonumber(ARGV[3])
       local limit = tonumber(ARGV[4])
@@ -107,8 +107,8 @@ export class SlidingWindowLimiter extends SlidingWindowLimiterNoLua {
 
       ${"" /* Removing expired values from set first */}
       redis.call('ZREMRANGEBYSCORE', key, '-inf', window_start_ts)
-      ${"" /* Adding current request to the set */}
-      redis.call('ZADD', key, now_ts, request_id)
+      ${"" /* Adding current hit to the set */}
+      redis.call('ZADD', key, now_ts, hit_id)
       ${"" /* Setting expiration on the whole key */}
       redis.call('PEXPIREAT', key, now_ts + window_size)
 
@@ -122,18 +122,18 @@ export class SlidingWindowLimiter extends SlidingWindowLimiterNoLua {
 
 	/** Applies limiting to a client's id.
 	 * @param clientId client unique id
-	 * @returns true if request should be limited, false otherwise
+	 * @returns true if hit should be limited, false otherwise
 	 */
 	override async applyLimit(clientId: string): Promise<boolean> {
 		const key = this.getClientKey(clientId);
-		const requestId = crypto.randomUUID();
+		const hitId = crypto.randomUUID();
 		const nowTs = Date.now();
 		const windowSize = this.opts.windowSizeMs;
 		const limit = this.opts.limit;
 
 		const result = await this.valkey.invokeScript(SlidingWindowLimiter.luaScript, {
 			keys: [key],
-			args: [requestId, nowTs, windowSize, limit].map(String),
+			args: [hitId, nowTs, windowSize, limit].map(String),
 		});
 
 		// Valkey EVAL returns 0 for false, 1 for true from Lua script

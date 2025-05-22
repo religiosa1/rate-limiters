@@ -27,22 +27,22 @@ describe.each([
 		await container.stop();
 	});
 
-	it("limits the amount of request in a window to the predefined amount", async () => {
+	it("limits the amount of hits in a window to the predefined amount", async () => {
 		const clientId = crypto.randomUUID();
 		const swl = new Limiter(client, { limit: 3, windowSizeMs: 10_000 });
 
-		// Allows the amount of requests as described in opts.limit
+		// Allows the amount of hits as described in opts.limit
 		for (let i = 0; i < swl.opts.limit; i++) {
 			const result = await swl.applyLimit(clientId);
 			expect(result).toBe(false);
 			vi.advanceTimersByTime(50);
 		}
-		// The next request is limited.
+		// The next hit is limited.
 		const result = await swl.applyLimit(clientId);
 		expect(result).toBe(true);
 	});
 
-	it("treats requests from separate clients separately", async () => {
+	it("treats hits from separate clients separately", async () => {
 		const clientId1 = crypto.randomUUID();
 		const swl = new Limiter(client, { limit: 3, windowSizeMs: 10_000 });
 
@@ -57,6 +57,20 @@ describe.each([
 			const result = await swl.applyLimit(clientId2);
 			expect(result).toBe(false);
 			vi.advanceTimersByTime(50);
+		}
+	});
+
+	it("allows to get the current available hits amount", async () => {
+		const clientId = crypto.randomUUID();
+		const swl = new Limiter(client, { limit: 3, windowSizeMs: 10_000 });
+		const timeStep = 50;
+
+		for (let i = 0; i < swl.opts.limit; i++) {
+			const currentLimit = await swl.getAvailableHits(clientId);
+			expect(currentLimit).toBe(swl.opts.limit - i);
+			const result = await swl.applyLimit(clientId);
+			expect(result).toBe(false);
+			vi.advanceTimersByTime(timeStep);
 		}
 	});
 });

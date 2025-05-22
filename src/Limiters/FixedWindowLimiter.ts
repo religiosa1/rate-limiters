@@ -10,7 +10,7 @@ const fixedWindowLimiterOptsSchema = z.object({
 	windowSizeMs: z.number().int().positive(),
 	/** First window start, e.g. start of the day */
 	startDate: z.date(),
-	/** Maximum amount of requests in the window */
+	/** Maximum amount of hits in the window */
 	limit: z.number().int().positive(),
 	/** Valkey keys prefix */
 	keyPrefix: z.string(),
@@ -19,10 +19,10 @@ type FixedWindowLimiterOpts = z.infer<typeof fixedWindowLimiterOptsSchema>;
 
 /** Fixed window limiter -- transaction version.
  *
- * Stores the amount of requests per window in a single key, which contains
+ * Stores the amount of hits per window in a single key, which contains
  * window start timestamp and expires, when the window expires. applyLimit
  * calls increase the value of this counter, and if it's greater than or equal
- * to the limit option, the request will be considered limited.
+ * to the limit option, the hit will be considered limited.
  *
  * This version of class performs all of the operations in a single valkey
  * transaction an thus should be robust enough against race conditions, but
@@ -47,48 +47,56 @@ export class FixedWindowLimiterNoLua implements IRateLimiter {
 
 	/** Applies limiting to a client's id.
 	 * @param clientId client unique id
-	 * @returns true if request should be limited, false otherwise
+	 * @returns true if hit should be limited, false otherwise
 	 */
 	async applyLimit(clientId: string): Promise<boolean> {
-		const key = this.getClientKey(clientId);
-		const expireAt = this.getCurrentWindowStopTs();
+		const nowTs = Date.now();
+		const key = this.getClientKey(clientId, nowTs);
+		const expireAtMs = this.calcCurrentWindowStartTs(nowTs) + this.opts.windowSizeMs;
 		const tx = new Transaction()
 			.incr(key) //
-			.pexpireAt(key, expireAt);
+			.pexpireAt(key, expireAtMs);
 		const [count] = (await this.valkey.exec(tx)) ?? [];
 
 		return typeof count === "number" && count > this.opts.limit;
 	}
 
-	/** Get the amount of requests performed during the current window (<= limit) */
-	async getCurrentRequestAmount(clientId: string): Promise<number | null> {
-		const key = this.getClientKey(clientId);
+	/** Get the amount of hits currently available to a client */
+	async getAvailableHits(clientId: string): Promise<number> {
+		const key = this.getClientKey(clientId, Date.now());
 		const str = await this.valkey.get(key);
-		return str ? +str : null;
+		if (str == null) {
+			return this.opts.limit;
+		}
+		return this.opts.limit - +str;
 	}
 
-	protected getClientKey(clientId: string): string {
-		const startTs = this.getCurrentWindowStartTs();
+	/** Get a timestamp in MS when the current window stops and limits reset.
+	 *
+	 * Can be used for setting headers like `x-ratelimit-reset`.
+	 */
+	getCurrentWindowStopTsMs(): number {
+		return this.calcCurrentWindowStartTs(Date.now()) + this.opts.windowSizeMs;
+	}
+
+	protected getClientKey(clientId: string, nowTs: number): string {
+		const startTs = this.calcCurrentWindowStartTs(nowTs);
 		return `${this.opts.keyPrefix}:${startTs}:${clientId}`;
 	}
 
-	protected getCurrentWindowStopTs(): number {
-		return this.getCurrentWindowStartTs() + this.opts.windowSizeMs;
-	}
-
-	private getCurrentWindowStartTs(): number {
+	protected calcCurrentWindowStartTs(nowTs: number): number {
 		const start = this.opts.startDate.getTime();
 		const duration = this.opts.windowSizeMs;
-		return Math.floor((Date.now() - start) / duration) * duration + start;
+		return Math.floor((nowTs - start) / duration) * duration + start;
 	}
 }
 
 /** Fixed window limiter -- lua on valkey version.
  *
- * Stores the amount of requests per window in a single key, which contains
+ * Stores the amount of hits per window in a single key, which contains
  * window start timestamp and expires, when the window expires. applyLimit
  * calls increase the value of this counter, and if it's greater than or equal
- * to the limit option, the request will be considered limited.
+ * to the limit option, the hit will be considered limited.
  *
  * This version of class executes applyLimit operations as a lua script on the
  * valkey instance, to avoid potential race conditions.
@@ -102,7 +110,7 @@ export class FixedWindowLimiter extends FixedWindowLimiterNoLua {
 		local count = redis.call('INCR', key)
 
 		if count == 1 then
-			${"" /* This is the first request in the window, set expiration */}
+			${"" /* This is the first hit in the window, set expiration */}
 			redis.call('PEXPIREAT', key, expire_at_ms)
 		end
 
@@ -114,11 +122,12 @@ export class FixedWindowLimiter extends FixedWindowLimiterNoLua {
 
 	/** Applies limiting to a client's id.
 	 * @param clientId client unique id
-	 * @returns true if request should be limited, false otherwise
+	 * @returns true if hit should be limited, false otherwise
 	 */
 	override async applyLimit(clientId: string): Promise<boolean> {
-		const key = this.getClientKey(clientId);
-		const expireAtMs = Math.floor(this.getCurrentWindowStopTs());
+		const nowTs = Date.now();
+		const key = this.getClientKey(clientId, nowTs);
+		const expireAtMs = this.calcCurrentWindowStartTs(nowTs) + this.opts.windowSizeMs;
 
 		const result = await this.valkey.invokeScript(FixedWindowLimiter.luaScript, {
 			keys: [key],
