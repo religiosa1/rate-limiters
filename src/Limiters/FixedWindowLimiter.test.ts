@@ -31,32 +31,31 @@ describe.each([
 	it("limits the hits to the amount in fixed period", async () => {
 		const clientId = crypto.randomUUID();
 		const fwl = new Limiter(client, {
-			limit: 5,
+			limit: 3,
 			windowSizeMs: 3 * Time.Minute,
 		});
 
 		// Ar first hits are not limited
-		for (let i = 0; i < fwl.opts.limit; i++) {
-			const result = await fwl.applyLimit(clientId);
-			expect(result).toBe(false);
-		}
+		expect(await fwl.registerHit(clientId)).toBe(2);
+		expect(await fwl.registerHit(clientId)).toBe(1);
+		expect(await fwl.registerHit(clientId)).toBe(0);
 		// Now we reach the limit and must be limited
-		expect(await fwl.applyLimit(clientId)).toBe(true);
+		expect(await fwl.registerHit(clientId)).toBe(-1);
 	});
 
 	it("treats hits from separate clients separately", async () => {
 		const clientId1 = crypto.randomUUID();
-		const swl = new Limiter(client, { limit: 3, windowSizeMs: 10_000 });
+		const fwl = new Limiter(client, { limit: 3, windowSizeMs: 10_000 });
 
-		for (let i = 0; i < swl.opts.limit; i++) {
-			const result = await swl.applyLimit(clientId1);
-			expect(result).toBe(false);
+		for (let i = 0; i < fwl.opts.limit; i++) {
+			const result = await fwl.registerHit(clientId1);
+			expect(result).toBe(fwl.opts.limit - i - 1);
 		}
 
 		const clientId2 = crypto.randomUUID();
-		for (let i = 0; i < swl.opts.limit; i++) {
-			const result = await swl.applyLimit(clientId2);
-			expect(result).toBe(false);
+		for (let i = 0; i < fwl.opts.limit; i++) {
+			const result = await fwl.registerHit(clientId2);
+			expect(result).toBe(fwl.opts.limit - i - 1);
 		}
 	});
 
@@ -69,16 +68,16 @@ describe.each([
 
 		// Exhausting the limit
 		for (let i = 0; i < fwl.opts.limit; i++) {
-			await fwl.applyLimit(clientId);
+			await fwl.registerHit(clientId);
 		}
 		// After duration amount of time has passed, we're not limited again
 		vi.advanceTimersByTime(fwl.opts.windowSizeMs * Time.Minute);
 		for (let i = 0; i < fwl.opts.limit; i++) {
-			const result = await fwl.applyLimit(clientId);
-			expect(result).toBe(false);
+			const result = await fwl.registerHit(clientId);
+			expect(result).toBe(fwl.opts.limit - i - 1);
 		}
 		// and then we are limited again
-		expect(await fwl.applyLimit(clientId)).toBe(true);
+		expect(await fwl.registerHit(clientId)).toBe(-1);
 	});
 
 	it("partially exhausted limits in the previous quant have no impact on current limits", async () => {
@@ -90,28 +89,28 @@ describe.each([
 
 		// Exhausting half of the limit
 		for (let i = 0; i < fwl.opts.limit / 2; i++) {
-			await fwl.applyLimit(clientId);
+			await fwl.registerHit(clientId);
 		}
 		// Waiting for the next quant -- next minutes
 		vi.advanceTimersByTime(fwl.opts.windowSizeMs * Time.Minute);
 		for (let i = 0; i < fwl.opts.limit; i++) {
-			const result = await fwl.applyLimit(clientId);
-			expect(result).toBe(false);
+			const result = await fwl.registerHit(clientId);
+			expect(result).toBe(fwl.opts.limit - i - 1);
 		}
 		// and then we are limited again
-		expect(await fwl.applyLimit(clientId)).toBe(true);
+		expect(await fwl.registerHit(clientId)).toBe(-1);
 	});
 
 	it("allows to get the current available hits amount", async () => {
 		const clientId = crypto.randomUUID();
-		const swl = new Limiter(client, { limit: 3, windowSizeMs: 10_000 });
+		const fwl = new Limiter(client, { limit: 3, windowSizeMs: 10_000 });
 		const timeStep = 50;
 
-		for (let i = 0; i < swl.opts.limit; i++) {
-			const currentLimit = await swl.getAvailableHits(clientId);
-			expect(currentLimit).toBe(swl.opts.limit - i);
-			const result = await swl.applyLimit(clientId);
-			expect(result).toBe(false);
+		for (let i = 0; i < fwl.opts.limit; i++) {
+			const currentLimit = await fwl.getAvailableHits(clientId);
+			expect(currentLimit).toBe(fwl.opts.limit - i);
+			const result = await fwl.registerHit(clientId);
+			expect(result).toBe(fwl.opts.limit - i - 1);
 			vi.advanceTimersByTime(timeStep);
 		}
 	});

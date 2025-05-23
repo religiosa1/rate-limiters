@@ -38,9 +38,9 @@ Available limiter types:
 
 Each limiter is implemented as a class, conforming to the
 [IRateLimiter](./src//Limiters//IRateLimiter.ts) interface. Each limiter is
-provided in two versions: one where `applyLimit` metho is executed in only in TS
-(involving multiple calls to the Valkey instance, either separately or in a
-single transaction), and one where `applyLimit` is executed as a Lua script
+provided in two versions: one where `registerHit` method is executed only in
+TS (involving multiple calls to the Valkey instance, either separately or in a
+single transaction), and one where `registerHit` is executed as a Lua script
 directly on the Valkey instance.
 
 - The former version always has a `NoLua` suffix in its name. It is susceptible

@@ -1,10 +1,20 @@
 export interface IRateLimiter {
-	/**
-	 * Applies limiting to a client's hit
+	/** Limiter options.
+	 *
+	 * May contain additional options, but these fields are common to all limiters */
+	opts: Readonly<{
+		/** The maximum amount of hits in the time window */
+		limit: number;
+		/** valkey keys prefix */
+		keyPrefix: string;
+	}>;
+
+	/** Registers a hit from a client
 	 * @param clientId client unique id, which is determined if hit is limited
-	 * @returns true if hit should be limited, false otherwise
+	 * @returns Amount of available hits remaining for the client as integer.
+	 * negative value means the client should be limitted.
 	 */
-	applyLimit(clientId: string): Promise<boolean>;
+	registerHit(clientId: string): Promise<number>;
 
 	/** Get the amount of hits a client perform right now.
 	 *

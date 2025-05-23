@@ -29,47 +29,44 @@ describe.each([
 
 	it("limits the amount of hits in a window to the predefined amount", async () => {
 		const clientId = crypto.randomUUID();
-		const swl = new Limiter(client, { limit: 3, windowSizeMs: 10_000 });
+		const flwl = new Limiter(client, { limit: 3, windowSizeMs: 10_000 });
 
 		// Allows the amount of hits as described in opts.limit
-		for (let i = 0; i < swl.opts.limit; i++) {
-			const result = await swl.applyLimit(clientId);
-			expect(result).toBe(false);
-			vi.advanceTimersByTime(50);
-		}
-		// The next hit is limited.
-		const result = await swl.applyLimit(clientId);
-		expect(result).toBe(true);
+		expect(await flwl.registerHit(clientId)).toBe(2);
+		expect(await flwl.registerHit(clientId)).toBe(1);
+		expect(await flwl.registerHit(clientId)).toBe(0);
+		// Limits
+		expect(await flwl.registerHit(clientId)).toBe(-1);
 	});
 
 	it("treats hits from separate clients separately", async () => {
 		const clientId1 = crypto.randomUUID();
-		const swl = new Limiter(client, { limit: 3, windowSizeMs: 10_000 });
+		const flwl = new Limiter(client, { limit: 3, windowSizeMs: 10_000 });
 
-		for (let i = 0; i < swl.opts.limit; i++) {
-			const result = await swl.applyLimit(clientId1);
-			expect(result).toBe(false);
+		for (let i = 0; i < flwl.opts.limit; i++) {
+			const result = await flwl.registerHit(clientId1);
+			expect(result).toBe(flwl.opts.limit - i - 1);
 			vi.advanceTimersByTime(50);
 		}
 
 		const clientId2 = crypto.randomUUID();
-		for (let i = 0; i < swl.opts.limit; i++) {
-			const result = await swl.applyLimit(clientId2);
-			expect(result).toBe(false);
+		for (let i = 0; i < flwl.opts.limit; i++) {
+			const result = await flwl.registerHit(clientId2);
+			expect(result).toBe(flwl.opts.limit - i - 1);
 			vi.advanceTimersByTime(50);
 		}
 	});
 
 	it("allows to get the current available hits amount", async () => {
 		const clientId = crypto.randomUUID();
-		const swl = new Limiter(client, { limit: 3, windowSizeMs: 10_000 });
+		const flwl = new Limiter(client, { limit: 3, windowSizeMs: 10_000 });
 		const timeStep = 50;
 
-		for (let i = 0; i < swl.opts.limit; i++) {
-			const currentLimit = await swl.getAvailableHits(clientId);
-			expect(currentLimit).toBe(swl.opts.limit - i);
-			const result = await swl.applyLimit(clientId);
-			expect(result).toBe(false);
+		for (let i = 0; i < flwl.opts.limit; i++) {
+			const currentLimit = await flwl.getAvailableHits(clientId);
+			expect(currentLimit).toBe(flwl.opts.limit - i);
+			const result = await flwl.registerHit(clientId);
+			expect(result).toBe(flwl.opts.limit - i - 1);
 			vi.advanceTimersByTime(timeStep);
 		}
 	});

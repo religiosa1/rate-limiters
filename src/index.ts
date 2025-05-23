@@ -14,10 +14,14 @@ const app = new Hono();
 const limiterMiddleware = (limiter: IRateLimiter) =>
 	createMiddleware(async (c, next) => {
 		const clientId = c.req.header("X-Client-Id");
-		// TODO: return not bool, but the amount of hits left and set a header
-		// like x-ratelimit-remaining
-		const isLimited = await limiter.applyLimit(clientId ?? "");
-		if (isLimited) {
+		if (limiter instanceof FixedWindowLimiter) {
+			const resetTimestamp = await limiter.getCurrentWindowStopTsMs();
+			c.res.headers.set("x-ratelimit-reset", resetTimestamp.toString());
+		}
+		const hitsRemaining = await limiter.registerHit(clientId ?? "");
+		c.res.headers.set("x-ratelimit-remaining", hitsRemaining.toString());
+		c.res.headers.set("x-ratelimit-limit", limiter.opts.limit.toString());
+		if (hitsRemaining < 0) {
 			throw new HTTPException(429);
 		}
 		await next();

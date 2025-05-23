@@ -24,28 +24,26 @@ describe.each([
 
 	it("limits rate to predefined value", async () => {
 		const clientId = crypto.randomUUID();
-		const tbl = new Limiter(client, { limit: 3 });
-		for (let i = 0; i < tbl.opts.limit; i++) {
-			const isLimited = await tbl.applyLimit(clientId);
-			expect(isLimited).toBe(false);
-		}
-		const isLimited = await tbl.applyLimit(clientId);
-		expect(isLimited).toBe(true);
+		const tbl = new Limiter(client, { limit: 3, refillIntervalMs: 60_000 });
+		expect(await tbl.registerHit(clientId)).toBe(2);
+		expect(await tbl.registerHit(clientId)).toBe(1);
+		expect(await tbl.registerHit(clientId)).toBe(0);
+		expect(await tbl.registerHit(clientId)).toBe(-1);
 	});
 
 	it("treats hits from separate clients separately", async () => {
 		const clientId1 = crypto.randomUUID();
-		const swl = new Limiter(client, { limit: 3, refillIntervalMs: 10_000 });
+		const tbl = new Limiter(client, { limit: 3, refillIntervalMs: 10_000 });
 
-		for (let i = 0; i < swl.opts.limit; i++) {
-			const result = await swl.applyLimit(clientId1);
-			expect(result).toBe(false);
+		for (let i = 0; i < tbl.opts.limit; i++) {
+			const result = await tbl.registerHit(clientId1);
+			expect(result).toBe(tbl.opts.limit - i - 1);
 		}
 
 		const clientId2 = crypto.randomUUID();
-		for (let i = 0; i < swl.opts.limit; i++) {
-			const result = await swl.applyLimit(clientId2);
-			expect(result).toBe(false);
+		for (let i = 0; i < tbl.opts.limit; i++) {
+			const result = await tbl.registerHit(clientId2);
+			expect(result).toBe(tbl.opts.limit - i - 1);
 		}
 	});
 
@@ -60,20 +58,18 @@ describe.each([
 			});
 			// exchausting the bucket completely
 			for (let i = 0; i < tbl.opts.limit; i++) {
-				expect(await tbl.applyLimit(clientId)).toBe(false);
+				expect(await tbl.registerHit(clientId)).toBe(tbl.opts.limit - i - 1);
 			}
-			expect(await tbl.applyLimit(clientId)).toBe(true);
+			expect(await tbl.registerHit(clientId)).toBe(-1);
 
-			// iterating from 1
-			for (let i = 1; i <= tbl.opts.limit; i++) {
-				vi.advanceTimersByTime(tbl.opts.refillIntervalMs * i);
-				// i hits must be available after waiting for refillInterval * i
-				for (let j = 0; j < i; j++) {
-					expect(await tbl.applyLimit(clientId)).toBe(false);
-				}
-				// next hit is dead though
-				expect(await tbl.applyLimit(clientId)).toBe(true);
-			}
+			vi.advanceTimersByTime(tbl.opts.refillIntervalMs);
+			expect(await tbl.registerHit(clientId)).toBe(0);
+			// waiting for 1.5 refill time
+			vi.advanceTimersByTime(tbl.opts.refillIntervalMs * 1.5);
+			expect(await tbl.registerHit(clientId)).toBe(0);
+			// and again -- now we have extra token
+			vi.advanceTimersByTime(tbl.opts.refillIntervalMs * 1.5);
+			expect(await tbl.registerHit(clientId)).toBe(1);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -83,14 +79,19 @@ describe.each([
 		vi.useFakeTimers();
 		try {
 			const clientId = crypto.randomUUID();
-			const swl = new Limiter(client, { limit: 3, refillIntervalMs: 1000 });
-			for (let i = 0; i < swl.opts.limit; i++) {
-				const currentLimit = await swl.getAvailableHits(clientId);
-				// As we're dealing with floats here, we're using toBeCloseTo
-				expect(currentLimit).toBeCloseTo(swl.opts.limit - i);
-				const result = await swl.applyLimit(clientId);
-				expect(result).toBe(false);
-			}
+			const tbl = new Limiter(client, { limit: 3, refillIntervalMs: 1000 });
+			// As we're dealing with floats here, we're using toBeCloseTo
+			expect(await tbl.getAvailableHits(clientId)).toBeCloseTo(3);
+			expect(await tbl.registerHit(clientId)).toBe(2);
+
+			expect(await tbl.getAvailableHits(clientId)).toBeCloseTo(2);
+			expect(await tbl.registerHit(clientId)).toBe(1);
+
+			expect(await tbl.getAvailableHits(clientId)).toBeCloseTo(1);
+			expect(await tbl.registerHit(clientId)).toBe(0);
+
+			expect(await tbl.getAvailableHits(clientId)).toBeCloseTo(0);
+			expect(await tbl.registerHit(clientId)).toBe(-1);
 		} finally {
 			vi.useRealTimers();
 		}
@@ -107,7 +108,7 @@ describe.each([
 					limit: 3,
 				});
 				for (let i = 0; i < tbl.opts.limit; i++) {
-					await tbl.applyLimit(clientId);
+					await tbl.registerHit(clientId);
 				}
 				// After depletion must be 0
 				const n1 = await tbl.getAvailableHits(clientId);

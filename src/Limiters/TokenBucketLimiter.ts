@@ -24,10 +24,10 @@ type TokenBucketLimiterOpts = z.infer<typeof tokenBucketLimiterOptsSchema>;
  *
  * Each of the values have expiration datetime, which set to maximum time required
  * for a bucket to fully refill (it doesn't account for the current bucket value).
- * Refill is calculated and stored during the applyLimit call.
+ * Refill is calculated and stored during the registerHit call.
  *
  * This version of class calculates limit in js runtime, performing multiple
- * hits to valkey in applyLimit method andd thus is susceptible to race
+ * hits to valkey in registerHit method andd thus is susceptible to race
  * conditions during simultaneous hits from the same client which results in
  * false negatives. Use the version of the class without NoLua suffix to address
  * the issue.
@@ -54,30 +54,20 @@ export class TokenBucketLimiterNoLua implements IRateLimiter {
 		this.opts = { ...TokenBucketLimiterNoLua.defaultOpts, ...opts };
 	}
 
-	/** Applies limiting to a client's id.
-	 * @param clientId client unique id
-	 * @returns true if hit should be limited, false otherwise
-	 */
-	async applyLimit(clientId: string): Promise<boolean> {
+	async registerHit(clientId: string): Promise<number> {
 		const nowTs = Date.now();
-		const currentLimit = await this.valkey.get(this.getNTokensKey(clientId));
-		if (currentLimit == null) {
-			await this.updateBucket(clientId, this.opts.limit - 1, nowTs);
-			return false;
-		}
-		const refilledLimit = +currentLimit + (await this.calculateRefilledTokenAmountAtTime(clientId, nowTs));
-		// As refilled amount is float, comparing against 1, to cut off partial refils, like 0.75
-		if (refilledLimit < 1.0) {
-			return true;
-		}
+		const currentLimit = (await this.valkey.get(this.getNTokensKey(clientId))) ?? this.opts.limit;
+		const tokensCount = +currentLimit + (await this.calculateRefilledTokenAmountAtTime(clientId, nowTs));
 
-		await this.updateBucket(clientId, refilledLimit - 1, nowTs);
-		return false;
+		// Consuming a token, if available, otherwise just updating the bucket with new expiry
+		const valuetoUpdate = tokensCount >= 1.0 ? tokensCount - 1 : tokensCount;
+		await this.updateBucket(clientId, valuetoUpdate, nowTs);
+		// return value is always "consumed", to denote limited requests
+		return Math.floor(tokensCount - 1);
 	}
 
-	/** Get the amount of hits a client perform right now. */
 	async getAvailableHits(clientId: string): Promise<number> {
-		const tokensLeft = +((await this.valkey.get(this.getNTokensKey(clientId))) ?? 0);
+		const tokensLeft = +((await this.valkey.get(this.getNTokensKey(clientId))) ?? this.opts.limit);
 		const refil = await this.calculateRefilledTokenAmountAtTime(clientId, Date.now());
 		return tokensLeft + refil;
 	}
@@ -90,7 +80,7 @@ export class TokenBucketLimiterNoLua implements IRateLimiter {
 	private async calculateRefilledTokenAmountAtTime(clientId: string, ts: number): Promise<number> {
 		const tsStr = await this.valkey.get(this.getTsKey(clientId));
 		if (!tsStr) {
-			return this.opts.limit;
+			return 0;
 		}
 		const lastTs = +tsStr || 0;
 		const elapsedMs = ts - lastTs;
@@ -137,9 +127,9 @@ export class TokenBucketLimiterNoLua implements IRateLimiter {
  *
  * Each of the values have expiration datetime, which set to maximum time required
  * for a bucket to fully refill (it doesn't account for the current bucket value).
- * Refill is calculated and stored during the applyLimit call.
+ * Refill is calculated and stored during the registerHit call.
  *
- * This version of class executes applyLimit operations as a lua script on the
+ * This version of class executes registerHit operations as a lua script on the
  * valkey instance, to avoid potential race conditions.
  */
 export class TokenBucketLimiter extends TokenBucketLimiterNoLua {
@@ -154,46 +144,43 @@ export class TokenBucketLimiter extends TokenBucketLimiterNoLua {
 		local refill_rate = tonumber(ARGV[5])
 
 		${"" /* Fetch current token count and last timestamp */}
-		local tokens = tonumber(redis.call('GET', tokens_key))
+		local tokens_count = tonumber(redis.call('GET', tokens_key))
 		local last_ts = tonumber(redis.call('GET', ts_key))
 
-		if tokens == nil or last_ts == nil  then
-			tokens = limit
+		if tokens_count == nil or last_ts == nil  then
+			tokens_count = limit
 			last_ts = now_ms
 		else 
 			local elapsed_ms = now_ms - last_ts
 			if elapsed_ms > 0 then
 				local refill_amount = (elapsed_ms / refill_interval) * refill_rate
-				tokens = math.min(limit, tokens + refill_amount)
+				tokens_count = math.min(limit, tokens_count + refill_amount)
 			end
 		end
 
 		${"" /* Attempt to consume a token */}
-		local is_limited = 1
-		if tokens >= 1.0 then
-			tokens = tokens - 1.0
-			is_limited = 0
+		local update_value = 0.0
+		if tokens_count >= 1.0 then
+			update_value = (tokens_count - 1.0)
+		else 
+			update_value = tokens_count
 		end
 
 		${"" /* Update keys with new data, setting expiration */}
-		redis.call('SET', tokens_key, tostring(math.max(tokens, 0)), "PX", expire_ms)
+		redis.call('SET', tokens_key, tostring(math.max(update_value, 0)), "PX", expire_ms)
 		redis.call('SET', ts_key, tostring(now_ms), "PX", expire_ms)
 
-		return is_limited`);
+		${"" /* Passing float as string, otherwise precission is getting lost */}
+		return tostring(tokens_count - 1.0)`);
 
-	/** Applies limiting to a client's id.
-	 * @param clientId client unique id
-	 * @returns true if hit should be limited, false otherwise
-	 */
-	override async applyLimit(clientId: string): Promise<boolean> {
+	override async registerHit(clientId: string): Promise<number> {
 		const expireMs = Math.ceil(this.timeForCompleteRefillMs);
 
-		const result = await this.valkey.invokeScript(TokenBucketLimiter.luaScript, {
+		let result = await this.valkey.invokeScript(TokenBucketLimiter.luaScript, {
 			keys: [this.getNTokensKey(clientId), this.getTsKey(clientId)],
 			args: [this.opts.limit, expireMs, Date.now(), this.opts.refillIntervalMs, this.opts.refillRate].map(String),
 		});
-
-		// Valkey EVAL returns 0 for false, 1 for true from Lua script
-		return result === 1;
+		result = Number(result);
+		return Math.floor(result);
 	}
 }

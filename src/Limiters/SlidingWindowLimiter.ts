@@ -38,11 +38,7 @@ export class SlidingWindowLimiterNoLua implements IRateLimiter {
 		this.opts = { ...SlidingWindowLimiterNoLua.defaultOpts, ...opts };
 	}
 
-	/** Applies limiting to a client's id.
-	 * @param clientId client unique id
-	 * @returns true if hit should be limited, false otherwise
-	 */
-	async applyLimit(clientId: string): Promise<boolean> {
+	async registerHit(clientId: string): Promise<number> {
 		const nowTs = Date.now();
 		const windowStartTs = nowTs - this.opts.windowSizeMs;
 		const key = this.getClientKey(clientId);
@@ -57,14 +53,12 @@ export class SlidingWindowLimiterNoLua implements IRateLimiter {
 			])
 			.pexpireAt(key, nowTs + this.opts.windowSizeMs)
 			.zcount(key, { value: windowStartTs }, { value: nowTs });
-		const [, , , count] = (await this.valkey.exec(tx)) ?? [];
+		let [, , , count] = (await this.valkey.exec(tx)) ?? [];
+		count = count == null ? 0 : Number(count);
 
-		return typeof count === "number" && count > this.opts.limit;
+		return this.opts.limit - count;
 	}
 
-	/** Gets the amount of hits available in the current window, without
-	 * tracking a hit.
-	 */
 	async getAvailableHits(clientId: string): Promise<number> {
 		return await this.getAvailableHitsAtTime(clientId, Date.now());
 	}
@@ -92,7 +86,7 @@ export class SlidingWindowLimiterNoLua implements IRateLimiter {
  * Stores multiple hits in ZSET in valkey and refills one hit at the
  * time.
  *
- * This version of class executes applyLimit operations as a lua script on the
+ * This version of class executes registerHit operations as a lua script on the
  * valkey instance, to avoid potential race conditions.
  */
 export class SlidingWindowLimiter extends SlidingWindowLimiterNoLua {
@@ -114,17 +108,9 @@ export class SlidingWindowLimiter extends SlidingWindowLimiterNoLua {
 
       local count = redis.call('ZCOUNT', key, window_start_ts, now_ts)
   
-      if count > limit then
-        return 1 ${"" /* Rate limited */}
-      else
-          return 0 ${"" /* Allowed */}
-      end`);
+			return limit - count`);
 
-	/** Applies limiting to a client's id.
-	 * @param clientId client unique id
-	 * @returns true if hit should be limited, false otherwise
-	 */
-	override async applyLimit(clientId: string): Promise<boolean> {
+	override async registerHit(clientId: string): Promise<number> {
 		const key = this.getClientKey(clientId);
 		const hitId = crypto.randomUUID();
 		const nowTs = Date.now();
@@ -135,8 +121,9 @@ export class SlidingWindowLimiter extends SlidingWindowLimiterNoLua {
 			keys: [key],
 			args: [hitId, nowTs, windowSize, limit].map(String),
 		});
-
-		// Valkey EVAL returns 0 for false, 1 for true from Lua script
-		return !!result;
+		if (typeof result !== "number") {
+			throw TypeError(`Unexpected script execution result type: ${typeof result}`);
+		}
+		return result;
 	}
 }

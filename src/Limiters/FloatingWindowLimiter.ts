@@ -42,11 +42,7 @@ export class FloatingWindowLimiterNoLua implements IRateLimiter {
 		this.opts = { ...FloatingWindowLimiterNoLua.defaultOpts, ...opts };
 	}
 
-	/** Applies limiting to a client's id.
-	 * @param clientId client unique id
-	 * @returns true if hit should be limited, false otherwise
-	 */
-	async applyLimit(clientId: string): Promise<boolean> {
+	async registerHit(clientId: string): Promise<number> {
 		const nowTs = Date.now();
 		const currentWindowStart = this.calcFixedWindowStartTs(nowTs);
 
@@ -67,10 +63,9 @@ export class FloatingWindowLimiterNoLua implements IRateLimiter {
 		const weight = this.calcPrevWindowWeight(nowTs);
 		const approx = prevCount * weight + curCount;
 
-		return approx > this.opts.limit;
+		return Math.floor(this.opts.limit - approx);
 	}
 
-	/** Gets the amount of hits currently available to a client. */
 	async getAvailableHits(clientId: string): Promise<number> {
 		const nowTs = Date.now();
 		const currentWindowStart = this.calcFixedWindowStartTs(nowTs);
@@ -114,7 +109,7 @@ export class FloatingWindowLimiterNoLua implements IRateLimiter {
  * calculates the approximation of a sliding window as
  * prevWindowCount * prevWindowWeight + currentWindowCount
  *
- * This version of class executes applyLimit operations as a lua script on the
+ * This version of class executes registerHit operations as a lua script on the
  * valkey instance, to avoid potential race conditions.
  */
 export class FloatingWindowLimiter extends FloatingWindowLimiterNoLua {
@@ -139,17 +134,9 @@ export class FloatingWindowLimiter extends FloatingWindowLimiterNoLua {
 
     local approx = count_prev * prev_window_weight + count_current
 
-		if approx > limit then
-			return 1 ${"" /* Rate limited */}
-		else
-			return 0 ${"" /* Allowed */}
-		end`);
+		return limit - approx`);
 
-	/** Applies limiting to a client's id.
-	 * @param clientId client unique id
-	 * @returns true if hit should be limited, false otherwise
-	 */
-	override async applyLimit(clientId: string): Promise<boolean> {
+	override async registerHit(clientId: string): Promise<number> {
 		const nowTs = Date.now();
 		const currentWindowStart = this.calcFixedWindowStartTs(nowTs);
 		const curKey = this.getClientWindowKey(clientId, currentWindowStart);
@@ -162,8 +149,10 @@ export class FloatingWindowLimiter extends FloatingWindowLimiterNoLua {
 			keys: [prevKey, curKey],
 			args: [expireAtMs, weight, limit].map(String),
 		});
+		if (typeof result !== "number") {
+			throw TypeError(`Unexpected script execution result type: ${typeof result}`);
+		}
 
-		// Valkey EVAL returns 0 for false, 1 for true from Lua script
-		return result === 1;
+		return Math.floor(result);
 	}
 }
