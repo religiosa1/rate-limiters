@@ -91,24 +91,24 @@ export class SlidingWindowLimiterNoLua implements IRateLimiter {
  */
 export class SlidingWindowLimiter extends SlidingWindowLimiterNoLua {
 	private static readonly luaScript = new Script(d`
-      local key = KEYS[1]
-      local hit_id = ARGV[1]
-      local now_ts = tonumber(ARGV[2])
-      local window_size = tonumber(ARGV[3])
-      local limit = tonumber(ARGV[4])
+		local key = KEYS[1]
+		local hit_id = ARGV[1]
+		local now_ts = tonumber(ARGV[2])
+		local window_size = tonumber(ARGV[3])
+		local limit = tonumber(ARGV[4])
 
-      local window_start_ts = now_ts - window_size
+		local window_start_ts = now_ts - window_size
 
-      -- Removing expired values from set first
-      redis.call('ZREMRANGEBYSCORE', key, '-inf', window_start_ts)
-      -- Adding current hit to the set
-      redis.call('ZADD', key, now_ts, hit_id)
-      -- Setting expiration on the whole key
-      redis.call('PEXPIREAT', key, now_ts + window_size)
+		-- Removing expired values from set first
+		redis.call('ZREMRANGEBYSCORE', key, '-inf', window_start_ts)
+		-- Adding current hit to the set
+		redis.call('ZADD', key, now_ts, hit_id)
+		-- Setting expiration on the whole key
+		redis.call('PEXPIREAT', key, now_ts + window_size)
 
-      local count = redis.call('ZCOUNT', key, window_start_ts, now_ts)
-  
-			return limit - count`);
+		local count = redis.call('ZCOUNT', key, window_start_ts, now_ts)
+
+		return limit - count`);
 
 	override async registerHit(clientId: string): Promise<number> {
 		const key = this.getClientKey(clientId);

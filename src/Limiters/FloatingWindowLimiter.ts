@@ -114,25 +114,25 @@ export class FloatingWindowLimiterNoLua implements IRateLimiter {
  */
 export class FloatingWindowLimiter extends FloatingWindowLimiterNoLua {
 	private static readonly luaScript = new Script(d`
-    local key_prev = KEYS[1]
-    local key_current = KEYS[2]
-    
-    local expire_at_ms = tonumber(ARGV[1])
-    local prev_window_weight = tonumber(ARGV[2])
-    local limit = tonumber(ARGV[3])
+		local key_prev = KEYS[1]
+		local key_current = KEYS[2]
+		
+		local expire_at_ms = tonumber(ARGV[1])
+		local prev_window_weight = tonumber(ARGV[2])
+		local limit = tonumber(ARGV[3])
 
 
-    local count_prev = tonumber(redis.call('GET', key_prev))
-    if count_prev == nil then
-      count_prev = 0
-    end
+		local count_prev = tonumber(redis.call('GET', key_prev))
+		if count_prev == nil then
+			count_prev = 0
+		end
 		local count_current = tonumber(redis.call('INCR', key_current))
 		if count_current == 1 then
 			-- This is the first hit in the window, set expiration
 			redis.call('PEXPIREAT', key_current, expire_at_ms)
 		end
 
-    local approx = count_prev * prev_window_weight + count_current
+		local approx = count_prev * prev_window_weight + count_current
 
 		return limit - approx`);
 
