@@ -1,5 +1,5 @@
 import z from "zod";
-import d from "ts-dedent";
+import { dedent as d } from "ts-dedent";
 import { Script, TimeUnit, Transaction, type GlideClient } from "@valkey/valkey-glide";
 import type { IRateLimiter } from "./IRateLimiter";
 

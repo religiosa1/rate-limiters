@@ -75,7 +75,7 @@ So you need a valkey available to start the project. You can install it on
 your machine, use some remote instance, or launch one in the docker:
 
 ```sh
-docker run --name rate-limiter-valkey -d valkey/valkey
+docker run --name rate-limiter-valkey -p 6379:6379 -d valkey/valkey
 ```
 
 By default server tries to connect to `localhost:6379`, use `VALKEY_HOST` and
