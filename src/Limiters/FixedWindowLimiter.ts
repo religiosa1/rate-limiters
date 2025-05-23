@@ -105,7 +105,7 @@ export class FixedWindowLimiter extends FixedWindowLimiterNoLua {
 		local count = redis.call('INCR', key)
 
 		if count == 1 then
-			${"" /* This is the first hit in the window, set expiration */}
+			-- This is the first hit in the window, set expiration
 			redis.call('PEXPIREAT', key, expire_at_ms)
 		end
 

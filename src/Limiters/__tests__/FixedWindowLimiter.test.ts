@@ -1,8 +1,10 @@
 import { describe, it, beforeAll, afterAll, expect, vi } from "vitest";
 import { StartedValkeyContainer, ValkeyContainer } from "@testcontainers/valkey";
 import { GlideClient } from "@valkey/valkey-glide";
-import { FixedWindowLimiter, FixedWindowLimiterNoLua } from "./FixedWindowLimiter";
-import { Time } from "./consts";
+import { FixedWindowLimiter, FixedWindowLimiterNoLua } from "../FixedWindowLimiter";
+
+/**  Ms in minute*/
+const Minute = 60 * 1000;
 
 describe.each([
 	["No lua", FixedWindowLimiterNoLua],
@@ -32,7 +34,7 @@ describe.each([
 		const clientId = crypto.randomUUID();
 		const fwl = new Limiter(client, {
 			limit: 3,
-			windowSizeMs: 3 * Time.Minute,
+			windowSizeMs: 3 * Minute,
 		});
 
 		// Ar first hits are not limited
@@ -63,7 +65,7 @@ describe.each([
 		const clientId = crypto.randomUUID();
 		const fwl = new Limiter(client, {
 			limit: 5,
-			windowSizeMs: 3 * Time.Minute,
+			windowSizeMs: 3 * Minute,
 		});
 
 		// Exhausting the limit
@@ -71,7 +73,7 @@ describe.each([
 			await fwl.registerHit(clientId);
 		}
 		// After duration amount of time has passed, we're not limited again
-		vi.advanceTimersByTime(fwl.opts.windowSizeMs * Time.Minute);
+		vi.advanceTimersByTime(fwl.opts.windowSizeMs * Minute);
 		for (let i = 0; i < fwl.opts.limit; i++) {
 			const result = await fwl.registerHit(clientId);
 			expect(result).toBe(fwl.opts.limit - i - 1);
@@ -84,7 +86,7 @@ describe.each([
 		const clientId = crypto.randomUUID();
 		const fwl = new Limiter(client, {
 			limit: 5,
-			windowSizeMs: 3 * Time.Minute,
+			windowSizeMs: 3 * Minute,
 		});
 
 		// Exhausting half of the limit
@@ -92,7 +94,7 @@ describe.each([
 			await fwl.registerHit(clientId);
 		}
 		// Waiting for the next quant -- next minutes
-		vi.advanceTimersByTime(fwl.opts.windowSizeMs * Time.Minute);
+		vi.advanceTimersByTime(fwl.opts.windowSizeMs * Minute);
 		for (let i = 0; i < fwl.opts.limit; i++) {
 			const result = await fwl.registerHit(clientId);
 			expect(result).toBe(fwl.opts.limit - i - 1);

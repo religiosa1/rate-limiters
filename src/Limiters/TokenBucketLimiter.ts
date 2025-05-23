@@ -143,7 +143,7 @@ export class TokenBucketLimiter extends TokenBucketLimiterNoLua {
 		local refill_interval = tonumber(ARGV[4])
 		local refill_rate = tonumber(ARGV[5])
 
-		${"" /* Fetch current token count and last timestamp */}
+		-- Fetch current token count and last timestamp
 		local tokens_count = tonumber(redis.call('GET', tokens_key))
 		local last_ts = tonumber(redis.call('GET', ts_key))
 
@@ -158,7 +158,7 @@ export class TokenBucketLimiter extends TokenBucketLimiterNoLua {
 			end
 		end
 
-		${"" /* Attempt to consume a token */}
+		-- Attempt to consume a token
 		local update_value = 0.0
 		if tokens_count >= 1.0 then
 			update_value = (tokens_count - 1.0)
@@ -166,11 +166,11 @@ export class TokenBucketLimiter extends TokenBucketLimiterNoLua {
 			update_value = tokens_count
 		end
 
-		${"" /* Update keys with new data, setting expiration */}
+		-- Update keys with new data, setting expiration
 		redis.call('SET', tokens_key, tostring(math.max(update_value, 0)), "PX", expire_ms)
 		redis.call('SET', ts_key, tostring(now_ms), "PX", expire_ms)
 
-		${"" /* Passing float as string, otherwise precission is getting lost */}
+		-- Passing float as string, otherwise precission is getting lost
 		return tostring(tokens_count - 1.0)`);
 
 	override async registerHit(clientId: string): Promise<number> {

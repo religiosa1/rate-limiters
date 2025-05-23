@@ -1,7 +1,7 @@
 import { describe, it, beforeAll, afterAll, expect, vi } from "vitest";
 import { StartedValkeyContainer, ValkeyContainer } from "@testcontainers/valkey";
 import { GlideClient } from "@valkey/valkey-glide";
-import { FloatingWindowLimiter, FloatingWindowLimiterNoLua } from "./FloatingWindowLimiter";
+import { FloatingWindowLimiter, FloatingWindowLimiterNoLua } from "../FloatingWindowLimiter";
 
 describe.each([
 	["No lua", FloatingWindowLimiterNoLua],

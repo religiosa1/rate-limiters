@@ -1,7 +1,7 @@
 import { describe, it, beforeAll, afterAll, expect, vi } from "vitest";
 import { StartedValkeyContainer, ValkeyContainer } from "@testcontainers/valkey";
 import { GlideClient } from "@valkey/valkey-glide";
-import { TokenBucketLimiter, TokenBucketLimiterNoLua } from "./TokenBucketLimiter";
+import { TokenBucketLimiter, TokenBucketLimiterNoLua } from "../TokenBucketLimiter";
 
 describe.each([
 	["No Lua", TokenBucketLimiterNoLua],

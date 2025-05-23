@@ -99,11 +99,11 @@ export class SlidingWindowLimiter extends SlidingWindowLimiterNoLua {
 
       local window_start_ts = now_ts - window_size
 
-      ${"" /* Removing expired values from set first */}
+      -- Removing expired values from set first
       redis.call('ZREMRANGEBYSCORE', key, '-inf', window_start_ts)
-      ${"" /* Adding current hit to the set */}
+      -- Adding current hit to the set
       redis.call('ZADD', key, now_ts, hit_id)
-      ${"" /* Setting expiration on the whole key */}
+      -- Setting expiration on the whole key
       redis.call('PEXPIREAT', key, now_ts + window_size)
 
       local count = redis.call('ZCOUNT', key, window_start_ts, now_ts)

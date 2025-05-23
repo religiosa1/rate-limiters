@@ -128,7 +128,7 @@ export class FloatingWindowLimiter extends FloatingWindowLimiterNoLua {
     end
 		local count_current = tonumber(redis.call('INCR', key_current))
 		if count_current == 1 then
-			${"" /* This is the first hit in the window, set expiration */}
+			-- This is the first hit in the window, set expiration
 			redis.call('PEXPIREAT', key_current, expire_at_ms)
 		end
 
