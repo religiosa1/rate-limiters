@@ -68,6 +68,35 @@ Where `:limiterName` name matches available limiter type in kebab-case:
 - `floating-window`
 - `token-bucket`
 
+## In-Memory limiters
+
+Having your limiters in memory is a worse idea than having a dedicated
+storage in valkey or redis. It's worse because now you don't have horizontal
+scalability (even in node cluster mode) and your limiter data won't survive
+service restarts caused by CI/CD deployments or crashes.
+
+Yet sometimes you need that: maybe you want to limit something on a frontend,
+or maybe you can't get your valkey in time because of complicated company
+policies or because you're cheap.
+
+One of the great thing about valkey or redis is data expiration. Without it,
+you'll have to track expiration manually. Keeping track of individual
+expiration times for client entries also is a lot of overhead. This leaves us
+with two windowed options:
+
+- [In-Memory Fixed Window](./src/InMemoryLimiters/FixedWindowInMemory.ts)
+- [In-Memory Floating Window](./src/InMemoryLimiters/FixedWindowInMemory.ts)
+
+They can track clients in a windows that expire all at once. And we can do
+housekeeping and remove expired windows on limiter call, avoiding arming
+a `setInterval` to do it for us (though you still can do it if you want).
+
+An added benefit is that these limiters are now completely sync.
+
+All of in-memory limiters conform to
+[IInMemoryRateLimiter](./src/InMemoryLimiters/IInMemoryRateLimiter.ts)
+interface.
+
 ## Running the project
 
 Each middleware uses [valkey] instance for storing hits.

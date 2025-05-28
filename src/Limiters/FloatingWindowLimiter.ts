@@ -28,7 +28,7 @@ type FloatingWindowLimiterOpts = z.infer<typeof floatingWindowLimiterOptsSchema>
 export class FloatingWindowLimiterNoLua implements IRateLimiter {
 	static readonly defaultOpts: FloatingWindowLimiterOpts = {
 		windowSizeMs: 60_000,
-		limit: 1,
+		limit: 20,
 		startDate: new Date(0),
 		keyPrefix: "floating_window_limiter",
 	};
@@ -44,7 +44,7 @@ export class FloatingWindowLimiterNoLua implements IRateLimiter {
 
 	async registerHit(clientId: string): Promise<number> {
 		const nowTs = Date.now();
-		const currentWindowStart = this.calcFixedWindowStartTs(nowTs);
+		const currentWindowStart = this.calcWindowStartTs(nowTs);
 
 		const prevKey = this.getClientWindowKey(clientId, currentWindowStart - this.opts.windowSizeMs);
 		const curKey = this.getClientWindowKey(clientId, currentWindowStart);
@@ -68,7 +68,7 @@ export class FloatingWindowLimiterNoLua implements IRateLimiter {
 
 	async getAvailableHits(clientId: string): Promise<number> {
 		const nowTs = Date.now();
-		const currentWindowStart = this.calcFixedWindowStartTs(nowTs);
+		const currentWindowStart = this.calcWindowStartTs(nowTs);
 
 		const prevKey = this.getClientWindowKey(clientId, currentWindowStart - this.opts.windowSizeMs);
 		const curKey = this.getClientWindowKey(clientId, currentWindowStart);
@@ -86,7 +86,7 @@ export class FloatingWindowLimiterNoLua implements IRateLimiter {
 	}
 
 	protected calcPrevWindowWeight(nowTs: number): number {
-		const currentWindowStart = this.calcFixedWindowStartTs(nowTs);
+		const currentWindowStart = this.calcWindowStartTs(nowTs);
 		const slidingWindowStart = nowTs - this.opts.windowSizeMs;
 		const prevWindowDiff = currentWindowStart - slidingWindowStart;
 		return prevWindowDiff / this.opts.windowSizeMs;
@@ -96,7 +96,7 @@ export class FloatingWindowLimiterNoLua implements IRateLimiter {
 		return `${this.opts.keyPrefix}:${winowStartTs}:${clientId}`;
 	}
 
-	protected calcFixedWindowStartTs(nowTs: number): number {
+	protected calcWindowStartTs(nowTs: number): number {
 		const start = this.opts.startDate.getTime();
 		const duration = this.opts.windowSizeMs;
 		return Math.floor((nowTs - start) / duration) * duration + start;
@@ -138,7 +138,7 @@ export class FloatingWindowLimiter extends FloatingWindowLimiterNoLua {
 
 	override async registerHit(clientId: string): Promise<number> {
 		const nowTs = Date.now();
-		const currentWindowStart = this.calcFixedWindowStartTs(nowTs);
+		const currentWindowStart = this.calcWindowStartTs(nowTs);
 		const curKey = this.getClientWindowKey(clientId, currentWindowStart);
 		const prevKey = this.getClientWindowKey(clientId, currentWindowStart - this.opts.windowSizeMs);
 		const expireAtMs = currentWindowStart + this.opts.windowSizeMs;

@@ -48,7 +48,7 @@ export class FixedWindowLimiterNoLua implements IRateLimiter {
 	async registerHit(clientId: string): Promise<number> {
 		const nowTs = Date.now();
 		const key = this.getClientKey(clientId, nowTs);
-		const expireAtMs = this.calcCurrentWindowStartTs(nowTs) + this.opts.windowSizeMs;
+		const expireAtMs = this.calcWindowStartTs(nowTs) + this.opts.windowSizeMs;
 		const tx = new Transaction()
 			.incr(key) //
 			.pexpireAt(key, expireAtMs);
@@ -71,15 +71,15 @@ export class FixedWindowLimiterNoLua implements IRateLimiter {
 	 * Can be used for setting headers like `x-ratelimit-reset`.
 	 */
 	getCurrentWindowStopTsMs(): number {
-		return this.calcCurrentWindowStartTs(Date.now()) + this.opts.windowSizeMs;
+		return this.calcWindowStartTs(Date.now()) + this.opts.windowSizeMs;
 	}
 
 	protected getClientKey(clientId: string, nowTs: number): string {
-		const startTs = this.calcCurrentWindowStartTs(nowTs);
+		const startTs = this.calcWindowStartTs(nowTs);
 		return `${this.opts.keyPrefix}:${startTs}:${clientId}`;
 	}
 
-	protected calcCurrentWindowStartTs(nowTs: number): number {
+	protected calcWindowStartTs(nowTs: number): number {
 		const start = this.opts.startDate.getTime();
 		const duration = this.opts.windowSizeMs;
 		return Math.floor((nowTs - start) / duration) * duration + start;
@@ -114,7 +114,7 @@ export class FixedWindowLimiter extends FixedWindowLimiterNoLua {
 	override async registerHit(clientId: string): Promise<number> {
 		const nowTs = Date.now();
 		const key = this.getClientKey(clientId, nowTs);
-		const expireAtMs = this.calcCurrentWindowStartTs(nowTs) + this.opts.windowSizeMs;
+		const expireAtMs = this.calcWindowStartTs(nowTs) + this.opts.windowSizeMs;
 
 		const result = await this.valkey.invokeScript(FixedWindowLimiter.luaScript, {
 			keys: [key],
