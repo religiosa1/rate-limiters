@@ -84,8 +84,8 @@ you'll have to track expiration manually. Keeping track of individual
 expiration times for client entries also is a lot of overhead. This leaves us
 with two windowed options:
 
-- [In-Memory Fixed Window](./src/InMemoryLimiters/FixedWindowInMemory.ts)
-- [In-Memory Floating Window](./src/InMemoryLimiters/FixedWindowInMemory.ts)
+- [In-Memory Fixed Window](./src/InMemoryLimiters/FixedWindowInMemoryLimiter.ts)
+- [In-Memory Floating Window](./src/InMemoryLimiters/FloatingWindowInMemoryLimiter.ts)
 
 They can track clients in a windows that expire all at once. And we can do
 housekeeping and remove expired windows on limiter call, avoiding arming
